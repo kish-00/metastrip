@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaStrip — Strip EXIF metadata from your photos</title>
+<style>
+  :root {
+    --fg: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --border: #334155;
+    --card: #0f172a;
+    --bg: #020617;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    line-height: 1.6;
+  }
+
+  body {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  header { margin-bottom: 28px; }
+
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 8px;
+  }
+
+  h1 .accent { color: var(--accent); }
+
+  p.tagline { color: var(--muted); font-size: 0.95rem; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+  }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #020617;
+    margin-bottom: 16px;
+  }
+
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(56, 189, 248, 0.05);
+  }
+
+  .drop-zone p { color: var(--muted); font-size: 1rem; margin-bottom: 8px; }
+  .drop-zone .hint { font-size: 0.85rem; color: var(--muted); }
+
+  input[type="file"] { display: none; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: filter 0.2s, transform 0.1s;
+  }
+
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+  .btn-outline:hover { border-color: var(--accent); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { filter: brightness(1.1); }
+
+  .preview {
+    display: none;
+    margin-top: 16px;
+    text-align: center;
+  }
+
+  .preview img {
+    max-width: 100%;
+    max-height: 400px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px -4px rgba(0,0,0,0.5);
+  }
+
+  .meta-section { display: none; }
+
+  table.meta {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 0.9rem;
+  }
+
+  table.meta th {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  table.meta td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  table.meta tr:last-child td { border-bottom: none; }
+
+  .gps-row td { background: rgba(239, 68, 68, 0.08); }
+
+  .gps-link {
+    color: var(--accent);
+    text-decoration: underline;
+    font-size: 0.85rem;
+  }
+
+  .empty-state {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-style: italic;
+  }
+
+  .action-bar {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 24px;
+    display: none;
+  }
+
+  .compare-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .compare-panel h4 {
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+  }
+
+  .compare-panel .size {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .compare-panel img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .strip-result {
+    margin-top: 16px;
+    padding: 14px;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid var(--ok);
+    border-radius: 8px;
+    display: none;
+  }
+
+  .strip-result h3 {
+    font-size: 1rem;
+    color: var(--ok);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .disclaimer {
+    margin-top: 32px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    line-height: 1.5;
+  }
+
+  .hidden { display: none !important; }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 480px) {
+    body { padding: 16px; }
+    .comparison { grid-template-columns: 1fr; }
+    h1 { font-size: 1.4rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MetaStrip <span class="accent">●</span></h1>
+  <p class="tagline">See what your photos are secretly sharing — then strip the metadata before you post.</p>
+</header>
+
+<div class="card">
+  <div class="drop-zone" id="dropZone">
+    <p>Drag &amp; drop a photo here</p>
+    <p class="hint">or <strong>browse</strong> — JPEG, PNG, WebP supported</p>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <div class="preview" id="preview">
+    <img id="previewImg" alt="Original image">
+  </div>
+
+  <div class="meta-section" id="metaSection">
+    <h3 style="margin-bottom: 12px; font-size: 1.1rem;">Metadata found in this photo</h3>
+    <table class="meta" id="metaTable">
+      <thead>
+        <tr><th>Field</th><th>Value</th></tr>
+      </thead>
+      <tbody id="metaBody"></tbody>
+    </table>
+    <p id="metaEmpty" class="empty-state hidden">No EXIF metadata detected.</p>
+  </div>
+
+  <div class="action-bar" id="actionBar" style="display:none;">
+    <button class="btn btn-outline" id="resetBtn">Choose another photo</button>
+    <button class="btn btn-danger" id="stripBtn">Strip metadata &amp; download</button>
+  </div>
+
+  <div class="comparison" id="comparison">
+    <div class="compare-panel">
+      <h4>Original</h4>
+      <div class="size" id="origSize">—</div>
+      <img id="origImg" alt="Original">
+    </div>
+    <div class="compare-panel">
+      <h4>Stripped (clean)</h4>
+      <div class="size" id="strippedSize">—</div>
+      <img id="strippedImg" alt="Stripped">
+    </div>
+  </div>
+
+  <div class="strip-result" id="stripResult">
+    <h3>✓ Metadata removed</h3>
+    <p id="stripDetails"></p>
+  </div>
+</div>
+
+<div class="disclaimer">
+  <strong>How it works:</strong> MetaStrip reads the EXIF metadata embedded in your photo (GPS location, camera model, date/time, device serial numbers, etc.) and shows you what's there. When you click "Strip metadata," the image is re-encoded in your browser through a canvas — this creates a clean copy with all EXIF stripped. Nothing is uploaded to a server; everything happens locally.<br><br>
+  <strong>Limitations:</strong> Some social platforms and messaging apps strip metadata automatically; others don't. This tool helps you take control before you share. Screenshots may still contain visible identifying details. Always review the final image before posting.
+</div>
+
+<script src="https://unpkg.com/exif-js"></script>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const preview = document.getElementById('preview');
+const previewImg = document.getElementById('previewImg');
+const metaSection = document.getElementById('metaSection');
+const metaBody = document.getElementById('metaBody');
+const metaEmpty = document.getElementById('metaEmpty');
+const actionBar = document.getElementById('actionBar');
+const resetBtn = document.getElementById('resetBtn');
+const stripBtn = document.getElementById('stripBtn');
+const comparison = document.getElementById('comparison');
+const stripResult = document.getElementById('stripResult');
+const stripDetails = document.getElementById('stripDetails');
+
+let currentFile = null;
+let originalUrl = null;
+let exifData = null;
+
+// ---- Drag & drop ----
+['dragenter','dragover'].forEach(evt => {
+  dropZone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+});
+
+['dragleave','drop'].forEach(evt => {
+  dropZone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+  });
+});
+
+dropZone.addEventListener('drop', (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) handleFile(files[0]);
+});
+
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+// ---- Main flow ----
+function handleFile(file) {
+  if (!file.type.startsWith('image/')) {
+    alert('Please select an image file.');
+    return;
+  }
+
+  currentFile = file;
+  originalUrl = URL.createObjectURL(file);
+  previewImg.src = originalUrl;
+  preview.style.display = 'block';
+  actionBar.style.display = 'flex';
+  metaSection.style.display = 'block';
+  comparison.style.display = 'none';
+  stripResult.style.display = 'none';
+  metaBody.innerHTML = '';
+  metaEmpty.classList.add('hidden');
+
+  readExif(file);
+}
+
+function readExif(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      EXIF.getData(e.target.result, function() {
+        exifData = EXIF.getAllTags(this);
+        renderExif(exifData);
+      });
+    } catch (err) {
+      console.error(err);
+      metaEmpty.classList.remove('hidden');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderExif(tags) {
+  const rows = [];
+
+  const display = [
+    { label: 'Camera Make', key: 'Make' },
+    { label: 'Camera Model', key: 'Model' },
+    { label: 'Date/Time', key: 'DateTime' },
+    { label: 'Software', key: 'Software' },
+    { label: 'Artist', key: 'Artist' },
+    { label: 'Copyright', key: 'Copyright' },
+    { label: 'Image Width', key: 'ExifImageWidth' },
+    { label: 'Image Height', key: 'ExifImageHeight' },
+    { label: 'Orientation', key: 'Orientation' },
+    { label: 'GPS Latitude', key: 'GPSLatitude' },
+    { label: 'GPS Longitude', key: 'GPSLongitude' },
+    { label: 'GPS Altitude', key: 'GPSAltitude' },
+    { label: 'GPS Timestamp', key: 'GPSDateTime' },
+  ];
+
+  let found = false;
+
+  display.forEach(({label, key}) => {
+    if (tags[key] !== undefined && tags[key] !== '') {
+      found = true;
+      let val = tags[key];
+      if (key === 'GPSLatitude' || key === 'GPSLongitude') {
+        val = formatGPS(val, key === 'GPSLatitude' ? tags['GPSLatitudeRef'] : tags['GPSLongitudeRef']);
+      }
+      if (key === 'GPSAltitude' && tags['GPSAltitudeRef'] !== undefined) {
+        val = val + (tags['GPSAltitudeRef'] === 1 ? ' m below sea level' : ' m above sea level');
+      }
+      rows.push(`<tr><td><strong>${label}</strong></td><td>${escapeHtml(String(val))}</td></tr>`);
+    }
+  });
+
+  // GPS map link
+  if (tags.GPSLatitude && tags.GPSLongitude) {
+    const lat = convertDMSToDD(tags.GPSLatitude, tags.GPSLatitudeRef);
+    const lng = convertDMSToDD(tags.GPSLongitude, tags.GPSLongitudeRef);
+    if (lat !== null && lng !== null) {
+      found = true;
+      const mapsUrl = `https://www.openstreetmap.org/#map=16/${lat}/${lng}`;
+      rows.push(`<tr class="gps-row"><td><strong>📍 GPS Location</strong></td><td><a href="${mapsUrl}" target="_blank" rel="noopener" class="gps-link">${lat.toFixed(6)}, ${lng.toFixed(6)}</a> — <a href="${mapsUrl}" target="_blank" rel="noopener" class="gps-link">Open in map</a></td></tr>`);
+    }
+  }
+
+  if (found) {
+    metaBody.innerHTML = rows.join('');
+    metaEmpty.classList.add('hidden');
+  } else {
+    metaBody.innerHTML = '';
+    metaEmpty.classList.remove('hidden');
+  }
+}
+
+function formatGPS(dms, ref) {
+  if (!Array.isArray(dms)) return String(dms);
+  const degrees = dms[0] || 0;
+  const minutes = dms[1] || 0;
+  const seconds = dms[2] || 0;
+  return `${degrees}° ${minutes}' ${seconds}" ${ref || ''}`;
+}
+
+function convertDMSToDD(dms, ref) {
+  if (!Array.isArray(dms)) return null;
+  const deg = Number(dms[0]) || 0;
+  const min = Number(dms[1]) || 0;
+  const sec = Number(dms[2]) || 0;
+  let dd = deg + min / 60 + sec / 3600;
+  if (ref === 'S' || ref === 'W') dd = -dd;
+  return dd;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ---- Strip metadata ----
+stripBtn.addEventListener('click', async () => {
+  if (!currentFile || !originalUrl) return;
+
+  stripBtn.disabled = true;
+  stripBtn.innerHTML = '<span class="spinner"></span> Processing…';
+
+  try {
+    const img = await loadImage(originalUrl);
+
+    // Draw to canvas to strip EXIF
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, currentFile.type === 'image/png' ? 'image/png' : 'image/jpeg', currentFile.type === 'image/png' ? undefined : 0.92);
+    });
+
+    const strippedUrl = URL.createObjectURL(blob);
+    document.getElementById('strippedImg').src = strippedUrl;
+    document.getElementById('origImg').src = originalUrl;
+
+    document.getElementById('origSize').textContent = formatBytes(currentFile.size);
+    document.getElementById('strippedSize').textContent = formatBytes(blob.size);
+
+    comparison.style.display = 'grid';
+    stripResult.style.display = 'block';
+    stripDetails.textContent = `EXIF removed. ${currentFile.name} → clean copy (${formatBytes(currentFile.size)} → ${formatBytes(blob.size)}).`;
+
+    // Auto-download
+    const a = document.createElement('a');
+    a.href = strippedUrl;
+    a.download = 'stripped_' + currentFile.name;
+    a.click();
+
+    revokeLater(strippedUrl, 60000);
+  } catch (err) {
+    console.error(err);
+    alert('Failed to strip metadata. Try a different image.');
+  } finally {
+    stripBtn.disabled = false;
+    stripBtn.textContent = 'Strip metadata & download';
+  }
+});
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+resetBtn.addEventListener('click', () => {
+  currentFile = null;
+  exifData = null;
+  if (originalUrl) URL.revokeObjectURL(originalUrl);
+  originalUrl = null;
+  preview.style.display = 'none';
+  previewImg.src = '';
+  metaSection.style.display = 'none';
+  metaBody.innerHTML = '';
+  metaEmpty.classList.add('hidden');
+  actionBar.style.display = 'none';
+  comparison.style.display = 'none';
+  stripResult.style.display = 'none';
+  fileInput.value = '';
+});
+
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function revokeLater(url, ms) {
+  setTimeout(() => URL.revokeObjectURL(url), ms);
+}
+</script>
+
+</body>
+</html>
