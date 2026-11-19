@@ -1,0 +1,2892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetaStrip — Inspect and strip media metadata locally</title>
+<style>
+  :root {
+    --fg: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --border: #334155;
+    --card: #0f172a;
+    --bg: #020617;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --purple: #a78bfa;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+
+  body {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  header { margin-bottom: 28px; }
+
+  h1 {
+    font-size: 1.85rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 8px;
+  }
+
+  h1 .accent { color: var(--accent); }
+
+  p.tagline { color: var(--muted); font-size: 1rem; max-width: 70ch; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 22px;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+  }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #020617;
+    margin-bottom: 18px;
+  }
+
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(56, 189, 248, 0.05);
+  }
+
+  .drop-zone p { color: var(--muted); font-size: 1rem; margin-bottom: 6px; }
+  .drop-zone .hint { font-size: 0.85rem; color: var(--muted); }
+
+  input[type="file"] { display: none; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: filter 0.2s, transform 0.1s;
+    font-family: inherit;
+  }
+
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #03121c; }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+  .btn-outline:hover { border-color: var(--accent); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { filter: brightness(1.1); }
+
+  .file-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(56, 189, 248, 0.05);
+  }
+
+  .file-summary strong { font-size: 0.95rem; }
+  .file-summary .meta { color: var(--muted); font-size: 0.85rem; }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+
+  .status-pill.ok { border-color: var(--ok); color: var(--ok); }
+  .status-pill.warn { border-color: var(--warn); color: var(--warn); }
+  .status-pill.danger { border-color: var(--danger); color: var(--danger); }
+  .status-pill.info { border-color: var(--accent); color: var(--accent); }
+
+  .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .preview-panel {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+    background: #020617;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .preview-panel h4 {
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .preview-panel img,
+  .preview-panel video,
+  .preview-panel audio,
+  .preview-panel iframe {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .preview-panel audio { width: 100%; }
+
+  .preview-panel .generic {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  table.meta {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 14px;
+    font-size: 0.9rem;
+  }
+
+  table.meta th {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  table.meta td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  table.meta tr:last-child td { border-bottom: none; }
+  table.meta tr.removed td { background: rgba(239, 68, 68, 0.07); }
+  table.meta tr.kept td { background: rgba(34, 197, 94, 0.07); }
+  table.meta tr.added td { background: rgba(245, 158, 11, 0.08); }
+
+  .outcome {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .outcome.removed { color: var(--danger); }
+  .outcome.kept { color: var(--ok); }
+  .outcome.added { color: var(--warn); }
+  .outcome.changed { color: var(--purple); }
+
+  .risk {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .risk.high { color: var(--danger); }
+  .risk.medium { color: var(--warn); }
+  .risk.low { color: var(--muted); }
+
+  .empty-state { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+  .action-bar {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+  }
+
+  .report-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .report-stat {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    background: #020617;
+  }
+
+  .report-stat span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .report-stat strong { font-size: 1.05rem; }
+
+  .notice {
+    border: 1px solid var(--warn);
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--fg);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    font-size: 0.85rem;
+  }
+
+  .notice.danger { border-color: var(--danger); background: rgba(239, 68, 68, 0.08); }
+  .notice.ok { border-color: var(--ok); background: rgba(34, 197, 94, 0.08); }
+
+  .disclaimer {
+    margin-top: 30px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    line-height: 1.55;
+  }
+
+  .hidden { display: none !important; }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-top-color: currentcolor;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  code {
+    background: rgba(148,163,184,0.14);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MetaStrip <span class="accent">●</span></h1>
+  <p class="tagline">Inspect and safely remove hidden metadata from images, audio, video, documents and archives. Everything runs in your browser; your files are not uploaded.</p>
+</header>
+
+<div class="card">
+  <div class="drop-zone" id="dropZone">
+    <p>Drag & drop a media file here</p>
+    <p class="hint">or <strong>browse</strong> — images, audio, video, PDF, Office, OpenDocument, ZIP</p>
+    <input type="file" id="fileInput" accept="image/*,audio/*,video/*,application/pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.zip,.svg,.bmp,.tif,.tiff,.mp3,.wav,.flac,.ogg,.opus,.m4a,.mp4,.mov,.m4v,.webm,.mkv">
+  </div>
+
+  <div id="fileSummary" class="file-summary hidden">
+    <div>
+      <strong id="fileName">—</strong>
+      <div class="meta" id="fileMeta">—</div>
+    </div>
+    <div id="fileStatus" class="status-pill info">Loaded</div>
+  </div>
+
+  <div id="previewGrid" class="preview-grid hidden">
+    <div class="preview-panel">
+      <h4>Original</h4>
+      <div id="originalPreview" class="generic">Preview unavailable</div>
+    </div>
+    <div class="preview-panel hidden" id="cleanedPanel">
+      <h4>Cleaned</h4>
+      <div id="cleanedPreview" class="generic">Preview unavailable</div>
+    </div>
+  </div>
+
+  <div id="metaSection">
+    <h3 style="margin-bottom: 8px; font-size: 1.05rem;">Metadata found in this file</h3>
+    <table class="meta">
+      <thead>
+        <tr><th>Category</th><th>Field</th><th>Value</th><th>Risk</th></tr>
+      </thead>
+      <tbody id="metaBody"></tbody>
+    </table>
+    <p id="metaEmpty" class="empty-state hidden">No readable metadata detected.</p>
+  </div>
+
+  <div id="actionBar" class="action-bar hidden">
+    <button class="btn btn-outline" id="resetBtn">Choose another file</button>
+    <button class="btn btn-danger" id="stripBtn">Strip metadata safely</button>
+  </div>
+
+  <div id="resultSection" class="hidden">
+    <div id="resultNotice"></div>
+
+    <div class="report-grid">
+      <div class="report-stat"><span>Method</span><strong id="statMethod">—</strong></div>
+      <div class="report-stat"><span>Metadata removed</span><strong id="statRemoved">0</strong></div>
+      <div class="report-stat"><span>Metadata kept</span><strong id="statKept">0</strong></div>
+      <div class="report-stat"><span>Size</span><strong id="statSize">—</strong></div>
+    </div>
+
+    <h3 style="margin-bottom: 8px; font-size: 1.05rem;">What was stripped and what was kept</h3>
+    <table class="meta">
+      <thead>
+        <tr><th>Outcome</th><th>Category</th><th>Field</th><th>Value</th></tr>
+      </thead>
+      <tbody id="reportBody"></tbody>
+    </table>
+    <p id="reportEmpty" class="empty-state hidden">No metadata fields changed.</p>
+
+    <div class="action-bar">
+      <button class="btn btn-primary" id="downloadBtn">Download cleaned file</button>
+    </div>
+  </div>
+</div>
+
+<div class="disclaimer">
+  <strong>How it works:</strong> MetaStrip inspects file containers locally and removes metadata while preserving readable media content whenever a safe method is available. Images and audio often keep structural data and color/orientation information so the file still works. Unsupported, encrypted, or signed formats are reported instead of silently producing a broken copy. Library code is fetched from pinned CDN versions, but your file bytes never leave this browser tab.
+</div>
+
+<script>
+/* ==== MetaStrip local metadata engine ==== */
+(function () {
+  'use strict';
+
+  const utf8Decoder = new TextDecoder('utf-8');
+  const latin1Decoder = new TextDecoder('latin1');
+  const MAX_INSPECT_BYTES = 64 * 1024 * 1024;
+  const MAX_WEBM_BUFFER = 512 * 1024 * 1024;
+
+  const CDN = {
+    exifreader: 'https://cdn.jsdelivr.net/npm/exifreader@4.54.0/+esm',
+    jszip: 'https://cdn.jsdelivr.net/npm/jszip@3.10.2/+esm',
+    pdflib: 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm',
+    mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.66.0/+esm'
+  };
+
+  const libraryCache = new Map();
+
+  function loadLibrary(name) {
+    if (!libraryCache.has(name)) {
+      libraryCache.set(name, import(CDN[name]));
+    }
+    return libraryCache.get(name);
+  }
+
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+  }
+
+  function formatBytes(bytes) {
+    if (typeof bytes !== 'number' || Number.isNaN(bytes) || bytes < 0) return '—';
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    const value = bytes / Math.pow(1024, i);
+    return `${value.toFixed(value >= 100 ? 0 : 2)} ${units[i]}`;
+  }
+
+  function asciiBytes(bytes, offset, length) {
+    let out = '';
+    const end = Math.min(offset + length, bytes.length);
+    for (let i = offset; i < end; i++) out += String.fromCharCode(bytes[i]);
+    return out;
+  }
+
+  function bytesEqual(bytes, signature, offset = 0) {
+    if (offset + signature.length > bytes.length) return false;
+    for (let i = 0; i < signature.length; i++) {
+      if (bytes[offset + i] !== signature.charCodeAt(i)) return false;
+    }
+    return true;
+  }
+
+  function clampText(value, max = 500) {
+    const text = String(value ?? '');
+    return text.length > max ? `${text.slice(0, max)}…` : text;
+  }
+
+  function displayValue(value) {
+    if (value === null || value === undefined || value === '') return '';
+    if (Array.isArray(value)) return clampText(value.join(', '));
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'object') {
+      if (typeof value.description !== 'undefined') return clampText(value.description);
+      if (typeof value.value !== 'undefined') return clampText(displayValue(value.value));
+      return clampText(JSON.stringify(value));
+    }
+    return clampText(value);
+  }
+
+  function classifyField(source, label, value) {
+    const id = `${source}:${label}`.toLowerCase();
+    const valueText = displayValue(value).toLowerCase();
+    if (/gps|latitude|longitude|altitude|location|coordinates/.test(id) || /^-?\d+\.\d+, ?-?\d+\.\d+$/.test(valueText.trim())) {
+      return { category: 'location', risk: 'high' };
+    }
+    if (/serialnumber|body.*serial|internal.*serial|lens.*serial|cameraid|deviceid|ownername|cameraowner|owner|account|user|username/.test(id)) {
+      return { category: 'device', risk: 'high' };
+    }
+    if (/artist|author|creator|copyright|by-line|credit|rights|contact|email|publisher|photographer/.test(id)) {
+      return { category: 'identity', risk: 'high' };
+    }
+    if (/thumbnail|preview|jpeginterchange/.test(id)) {
+      return { category: 'thumbnail', risk: 'high' };
+    }
+    if (/datetime|date$|created|modified|digitized|timestamp|timezone|mtime/.test(id)) {
+      return { category: 'datetime', risk: 'medium' };
+    }
+    if (/make|model|lens|camera|firmware|hostcomputer|encoder|software|processingsoftware|creatortool|toolkit|documentid|instanceid|originaldocumentid|history|parameters|prompt|seed|sampler|steps|modelhash|workflow|stable|diffusion|midjourney|dall|firefly/.test(id)) {
+      return { category: 'software', risk: 'medium' };
+    }
+    if (/exposuretime|aperture|fnumber|shutterspeed|iso|focallength|flash|whitebalance|metering|exposurebias|scenetype|lightsource|digitalzoom|subjectdistance|encoder delay|bit depth|duration|bitrate|majorbrand|compatiblebrands|codec|resolution|dimension|width|height|track|orientation|icc|colorspace|color profile|sample rate|channels/.test(id)) {
+      return { category: 'technical', risk: 'low' };
+    }
+    return { category: 'other', risk: 'low' };
+  }
+
+  function addField(fields, source, label, value, options = {}) {
+    const text = displayValue(value);
+    if (!text) return;
+    const baseId = options.id || `${source}:${label}`.replace(/[^\w:.-]+/g, '_');
+    let id = baseId;
+    let suffix = 2;
+    while (fields.some(field => field.id === id)) id = `${baseId}#${suffix++}`;
+    fields.push({
+      id,
+      label: String(label),
+      value: text,
+      source,
+      category: options.category || classifyField(source, label, value).category,
+      risk: options.risk || classifyField(source, label, value).risk
+    });
+  }
+
+  function mergeFieldMaps(before, after) {
+    const beforeMap = new Map(before.map(f => [f.id, f]));
+    const afterMap = new Map(after.map(f => [f.id, f]));
+    const removed = before.filter(f => !afterMap.has(f.id));
+    const kept = before.filter(f => afterMap.has(f.id) && afterMap.get(f.id).value === f.value);
+    const changed = before
+      .filter(f => afterMap.has(f.id) && afterMap.get(f.id).value !== f.value)
+      .map(f => ({ ...f, afterValue: afterMap.get(f.id).value }));
+    const added = after.filter(f => !beforeMap.has(f.id));
+    return { removed, kept, changed, added, beforeMap, afterMap };
+  }
+
+  function residualSensitiveFields(fields) {
+    return fields.filter(f => f.risk === 'high' || f.risk === 'medium');
+  }
+
+  async function readSome(file, max = MAX_INSPECT_BYTES) {
+    if (file.size > max) {
+      throw new Error(`This file is larger than the local inspection limit (${formatBytes(max)}). Slice or convert it first.`);
+    }
+    const buffer = await file.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+
+  async function readHeader(file, length = 16) {
+    const buffer = await file.slice(0, length).arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+
+  function revokeUrl(url) {
+    if (url) URL.revokeObjectURL(url);
+  }
+
+  function setStatus(kind, text) {
+    const pill = $('fileStatus');
+    pill.className = `status-pill ${kind}`;
+    pill.textContent = text;
+  }
+
+  function resetStateUI() {
+    if (state && state.urls) state.urls.forEach(revokeUrl);
+    state = null;
+    ['fileSummary', 'previewGrid', 'metaSection', 'actionBar', 'resultSection', 'cleanedPanel'].forEach(id => {
+      $(id).classList.add('hidden');
+    });
+    $('metaBody').innerHTML = '';
+    $('reportBody').innerHTML = '';
+    $('metaEmpty').classList.add('hidden');
+    $('reportEmpty').classList.add('hidden');
+    $('resultNotice').innerHTML = '';
+    $('originalPreview').innerHTML = 'Preview unavailable';
+    $('cleanedPreview').innerHTML = 'Preview unavailable';
+    $('fileInput').value = '';
+    $('stripBtn').disabled = false;
+    $('stripBtn').innerHTML = 'Strip metadata safely';
+    $('downloadBtn').disabled = false;
+  }
+
+  function initEventHandlers() {
+    const dropZone = $('dropZone');
+    const fileInput = $('fileInput');
+
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropZone.addEventListener(evt, e => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+      dropZone.addEventListener(evt, e => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+      });
+    });
+
+    dropZone.addEventListener('drop', e => {
+      const files = e.dataTransfer.files;
+      if (files && files.length) handleFile(files[0]);
+    });
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', e => {
+      if (e.target.files && e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    $('resetBtn').addEventListener('click', () => {
+      resetStateUI();
+    });
+
+    $('stripBtn').addEventListener('click', handleStrip);
+  }
+
+  initEventHandlers();
+
+  let state = null;
+
+  async function handleFile(file) {
+    resetStateUI();
+    state = { file, urls: [] };
+
+    $('fileSummary').classList.remove('hidden');
+    $('fileName').textContent = file.name;
+    $('fileMeta').textContent = `${file.type || 'unknown type'} · ${formatBytes(file.size)}`;
+    setStatus('info', 'Inspecting');
+    $('actionBar').classList.remove('hidden');
+    $('stripBtn').disabled = true;
+
+    try {
+      const inspection = await inspectFile(file);
+      state.inspection = inspection;
+      renderInspection(inspection);
+      setStatus(inspection.canClean ? 'ok' : 'warn', inspection.canClean ? 'Ready to clean' : 'Inspect only');
+    } catch (error) {
+      console.error(error);
+      $('metaEmpty').classList.remove('hidden');
+      $('metaEmpty').textContent = error.message || 'Could not inspect this file.';
+      setStatus('danger', 'Inspection failed');
+    }
+  }
+
+  function renderInspection(inspection) {
+    const body = $('metaBody');
+    body.innerHTML = '';
+    if (!inspection.fields.length) {
+      $('metaEmpty').classList.remove('hidden');
+    } else {
+      $('metaEmpty').classList.add('hidden');
+      for (const field of inspection.fields) {
+        const row = document.createElement('tr');
+        row.innerHTML =
+          `<td>${escapeHtml(field.category)}</td>` +
+          `<td><strong>${escapeHtml(field.label)}</strong><div class="meta" style="color:var(--muted);font-size:.78rem;">${escapeHtml(field.source)}</div></td>` +
+          `<td>${escapeHtml(field.value)}</td>` +
+          `<td><span class="risk ${field.risk}">${escapeHtml(field.risk)}</span></td>`;
+        body.appendChild(row);
+      }
+    }
+    $('metaSection').classList.remove('hidden');
+    const original = $('originalPreview');
+    original.innerHTML = '';
+    original.appendChild(makePreview(inspection.file, inspection));
+    $('previewGrid').classList.remove('hidden');
+    $('stripBtn').disabled = !inspection.canClean;
+    $('stripBtn').innerHTML = inspection.canClean ? 'Strip metadata safely' : 'No safe cleaning available';
+  }
+/* ---- Detection and dispatch ---- */
+
+  function sniffKind(file, header, textHead) {
+    if (bytesEqual(header, '\x89PNG\r\n\x1a\n')) return { category: 'image', format: 'png' };
+    if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return { category: 'image', format: 'jpeg' };
+    if (bytesEqual(header, 'GIF87a') || bytesEqual(header, 'GIF89a')) return { category: 'image', format: 'gif' };
+    if (bytesEqual(header, 'II\x2a\x00') || bytesEqual(header, 'MM\x00\x2a')) return { category: 'image', format: 'tiff' };
+    if (header[0] === 0x42 && header[1] === 0x4d) return { category: 'image', format: 'bmp' };
+    if (bytesEqual(header, 'RIFF') && bytesEqual(header, 'WEBP', 8)) return { category: 'image', format: 'webp' };
+    if (bytesEqual(header, 'OggS')) return { category: 'audio', format: 'ogg' };
+    if (bytesEqual(header, 'fLaC')) return { category: 'audio', format: 'flac' };
+    if (bytesEqual(header, 'RIFF') && bytesEqual(header, 'WAVE', 8)) return { category: 'audio', format: 'wav' };
+    if (bytesEqual(header, '%PDF')) return { category: 'pdf', format: 'pdf' };
+    if (bytesEqual(header, 'PK\x03\x04') || bytesEqual(header, 'PK\x05\x06')) return { category: 'archive', format: 'zip' };
+    if (bytesEqual(header, 'ID3')) return { category: 'audio', format: 'mp3' };
+    if (header[0] === 0xff && header[1] !== undefined && (header[1] & 0xe0) === 0xe0) {
+      const versionBits = (header[1] >> 3) & 0x03;
+      const layerBits = (header[1] >> 1) & 0x03;
+      const bitrateIndex = header[2] === undefined ? 0x0f : (header[2] >> 4) & 0x0f;
+      if (versionBits !== 0x01 && layerBits !== 0x00 && bitrateIndex !== 0x0f) {
+        return { category: 'audio', format: 'mp3' };
+      }
+    }
+    if (header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.mkv')) return { category: 'video', format: 'mkv' };
+      return { category: 'video', format: 'webm' };
+    }
+    if (bytesEqual(header, 'ftyp', 4)) {
+      const brand = asciiBytes(header, 8, 4).trim().toLowerCase();
+      const name = file.name.toLowerCase();
+      if (brand.startsWith('hei')) return { category: 'image', format: 'heic' };
+      if (brand === 'avif' || brand === 'avis') return { category: 'image', format: 'avif' };
+      if (brand === 'qt  ' || name.endsWith('.mov')) return { category: 'video', format: 'mov' };
+      if (name.endsWith('.m4a') || brand === 'm4a ') return { category: 'audio', format: 'm4a' };
+      if (name.endsWith('.m4v')) return { category: 'video', format: 'm4v' };
+      return { category: 'video', format: 'mp4' };
+    }
+    if (textHead) {
+      const trimmed = textHead.trim().toLowerCase();
+      if (trimmed.startsWith('<?xml') && trimmed.includes('<svg')) return { category: 'image', format: 'svg' };
+      if (trimmed.startsWith('<svg')) return { category: 'image', format: 'svg' };
+    }
+    return { category: 'unknown', format: 'unknown' };
+  }
+
+  async function inspectFile(file) {
+    const header = await readHeader(file, 32);
+    let textHead = '';
+    let detectedInitial = sniffKind(file, header, '');
+    if (detectedInitial.category === 'unknown') {
+      const head = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+      textHead = latin1Decoder.decode(head);
+    }
+    const detected = sniffKind(file, header, textHead);
+
+    if (detected.category === 'unknown') {
+      return {
+        file,
+        format: 'unknown',
+        category: 'unknown',
+        fields: [],
+        canClean: false,
+        notes: ['Unsupported file type. The inspector could not identify the container from its initial bytes.']
+      };
+    }
+
+    if (bytesEqual(header, 'PK\x03\x04') || bytesEqual(header, 'PK\x05\x06')) {
+      return inspectZipContainer(file);
+    }
+
+    const result = {
+      file,
+      format: detected.format,
+      category: detected.category,
+      fields: [],
+      canClean: true,
+      notes: []
+    };
+
+    if (detected.category === 'image') {
+      await parseImage(result);
+    } else if (detected.category === 'audio') {
+      await parseAudioMedia(result);
+    } else if (detected.category === 'video') {
+      await parseVideoMedia(result);
+    } else if (detected.category === 'pdf') {
+      await parsePdfDocument(result);
+    }
+
+    result.canClean = result.canClean && supportsSafeCleaning(result);
+    return result;
+  }
+
+  function supportsSafeCleaning(info) {
+    return ['jpeg', 'png', 'gif', 'tiff', 'bmp', 'webp', 'svg',
+      'mp3', 'wav', 'flac', 'ogg', 'm4a', 'mp4', 'mov', 'm4v', 'webm', 'mkv',
+      'pdf', 'docx', 'xlsx', 'pptx', 'odf', 'zip'].includes(info.format);
+  }
+
+  function makePreview(file, info) {
+    const wrapper = document.createElement('div');
+    const category = info.category;
+    if (category === 'image' || category === 'video' || category === 'audio' || category === 'pdf') {
+      const url = URL.createObjectURL(file);
+      if (state) state.urls.push(url);
+      const tag = category === 'audio' ? 'audio' : category === 'video' ? 'video' : category === 'pdf' ? 'iframe' : 'img';
+      const element = document.createElement(tag);
+      element.src = url;
+      if (category === 'audio' || category === 'video') element.controls = true;
+      if (category === 'image') element.alt = 'Original file preview';
+      if (category === 'pdf') {
+        element.style.width = '100%';
+        element.style.height = '300px';
+      }
+      if (category === 'audio') element.style.width = '100%';
+      element.onerror = () => {
+        wrapper.innerHTML = '<span class="generic">Preview unavailable</span>';
+      };
+      wrapper.appendChild(element);
+      return wrapper;
+    }
+    wrapper.innerHTML = '<span class="generic">Preview unavailable in browser</span>';
+    return wrapper;
+  }
+/* ---- Image inspection ---- */
+
+  async function parseImage(info) {
+    const file = info.file;
+    if (info.format === 'svg') {
+      const text = await file.text();
+      inspectSvgMetadata(info, text);
+      return;
+    }
+
+    if (info.format === 'bmp') {
+      const bytes = await readSome(file, 16 * 1024 * 1024);
+      inspectBmpMetadata(info, bytes);
+      return;
+    }
+
+    if (info.format === 'heic' || info.format === 'avif') {
+      info.notes.push('This ISO-BMFF image format is inspected for metadata, but no safe byte-level metadata remover is implemented. The original file will not be offered as a cleaned copy.');
+    }
+
+    const bytes = await readSome(file);
+    if (info.format === 'jpeg') inspectJpegSegments(info, bytes);
+    else if (info.format === 'gif') inspectGifMetadata(info, bytes);
+    else if (info.format === 'webp') inspectWebpChunks(info, bytes);
+    else if (info.format === 'png') inspectPngChunks(info, bytes);
+    try {
+      const exifModule = await loadLibrary('exifreader');
+      const tags = exifModule.load(bytes.buffer, { expanded: true, includeUnknown: false });
+      flattenExifResult(info, tags);
+    } catch (error) {
+      info.notes.push(`Metadata parser warning: ${error.message || 'unknown EXIF parser error'}`);
+    }
+  }
+
+  function inspectSvgMetadata(info, text) {
+    try {
+      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      const comments = text.match(/<!--[\s\S]*?-->/g) || [];
+      if (comments.length) {
+        addField(info.fields, 'svg', 'XML comments', comments.join(' | '));
+      }
+      const metadata = doc.getElementsByTagName('metadata');
+      for (const node of Array.from(metadata)) {
+        for (const child of Array.from(node.children)) {
+          addField(info.fields, 'svg', child.localName || child.tagName, child.textContent);
+        }
+      }
+      for (const localName of ['title', 'desc', 'creator', 'description', 'date', 'publisher', 'rights', 'subject']) {
+        const nodes = Array.from(doc.getElementsByTagName('*')).filter(n => n.localName === localName);
+        for (const node of nodes) {
+          addField(info.fields, 'svg', localName, node.textContent);
+        }
+      }
+      for (const el of Array.from(doc.getElementsByTagName('*'))) {
+        for (const attr of Array.from(el.attributes || [])) {
+          if (/^(inkscape|sodipodi|illustrator|adobe):/i.test(attr.name)) {
+            addField(info.fields, 'svg', `Attribute ${attr.name}`, attr.value);
+          }
+        }
+      }
+      if (doc.getElementsByTagName('script').length) {
+        info.notes.push('SVG contains script elements; the cleaned copy will remove scripts.');
+      }
+    } catch (error) {
+      info.notes.push(`SVG parsing warning: ${error.message || 'invalid XML'}`);
+    }
+  }
+
+  function readBmpInfo(bytes) {
+    if (bytes.length < 26) return null;
+    const view = dataViewFor(bytes);
+    const pixelOffset = view.getUint32(10, true);
+    const dibSize = view.getUint32(14, true);
+    let width;
+    let height;
+    let bitDepth;
+    let compression = 0;
+    if (dibSize === 12) {
+      width = view.getUint16(18, true);
+      height = view.getUint16(20, true);
+      bitDepth = view.getUint16(24, true);
+    } else if (dibSize >= 40 && bytes.length >= 34) {
+      width = view.getInt32(18, true);
+      height = view.getInt32(22, true);
+      bitDepth = view.getUint16(28, true);
+      compression = view.getUint32(30, true);
+    } else {
+      return null;
+    }
+    return { pixelOffset, dibSize, width, height, bitDepth, compression };
+  }
+
+  function bmpPixelEnd(info) {
+    if (!info || !info.bitDepth || info.width <= 0 || info.height === 0) return null;
+    if (info.compression !== 0 && info.compression !== 3) return null;
+    const rowSize = Math.ceil((info.bitDepth * Math.abs(info.width)) / 32) * 4;
+    return info.pixelOffset + (rowSize * Math.abs(info.height));
+  }
+
+  function inspectBmpMetadata(info, bytes) {
+    const bmp = readBmpInfo(bytes);
+    if (!bmp) {
+      info.notes.push('This BMP header variant could not be interpreted safely; cleaning is disabled.');
+      info.canClean = false;
+      return;
+    }
+    addField(info.fields, 'bmp', 'Width', Math.abs(bmp.width), { category: 'technical', risk: 'low' });
+    addField(info.fields, 'bmp', 'Height', Math.abs(bmp.height), { category: 'technical', risk: 'low' });
+    addField(info.fields, 'bmp', 'Bit depth', bmp.bitDepth, { category: 'technical', risk: 'low' });
+    addField(info.fields, 'bmp', 'Compression', bmp.compression, { category: 'technical', risk: 'low' });
+    const end = bmpPixelEnd(bmp);
+    if (end === null) {
+      info.notes.push('Compressed or unusual BMP pixel data prevents safe trailing-byte analysis; cleaning is disabled.');
+      info.canClean = false;
+      return;
+    }
+    if (info.file.size > end) {
+      addField(info.fields, 'bmp', 'Trailing bytes', `${info.file.size - end} bytes`, { category: 'other', risk: 'medium' });
+    }
+  }
+
+  function inspectJpegSegments(info, bytes) {
+    let pos = 2;
+    while (pos + 4 <= bytes.length && bytes[pos] === 0xff) {
+      const marker = bytes[pos + 1];
+      if (marker === 0xda || marker === 0xd9) break;
+      if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        pos += 2;
+        continue;
+      }
+      const length = (bytes[pos + 2] << 8) | bytes[pos + 3];
+      const total = 2 + length;
+      if (length < 2 || pos + total > bytes.length) break;
+      const payload = bytes.subarray(pos + 4, pos + total);
+      if (marker === 0xfe) {
+        const text = latin1Decoder.decode(payload).replace(/\0+$/g, '').trim();
+        addField(info.fields, 'jpeg', 'Comment', text, { category: 'other', risk: 'high' });
+      } else if (marker === 0xe0) {
+        if (asciiBytes(payload, 0, 5) === 'JFIF\0' && payload[12] && payload[13]) {
+          addField(info.fields, 'jpeg', 'JFIF thumbnail', `${payload[12]}×${payload[13]}`, { category: 'thumbnail', risk: 'high' });
+        }
+      } else if (marker === 0xe1) {
+        if (asciiBytes(payload, 0, 29) === 'http://ns.adobe.com/xap/1.0/\0') {
+          addField(info.fields, 'jpeg', 'XMP packet', utf8Decoder.decode(payload.subarray(29)), { category: 'identity', risk: 'high' });
+        }
+      } else if (marker === 0xe2) {
+        if (asciiBytes(payload, 0, 12).startsWith('ICC_PROFILE')) {
+          addField(info.fields, 'jpeg', 'ICC color profile', 'Present (preserved)', { category: 'technical', risk: 'low' });
+        }
+      } else if (marker === 0xed) {
+        addField(info.fields, 'jpeg', 'IPTC/Photoshop APP13', 'Present', { category: 'identity', risk: 'high' });
+      } else if (marker >= 0xe3 && marker <= 0xef) {
+        addField(info.fields, 'jpeg', `APP${marker - 0xe0} segment`, `${length} bytes`, { category: 'other', risk: 'medium' });
+      }
+      pos += total;
+    }
+    if (pos < bytes.length && bytes[pos] === 0xff && bytes[pos + 1] === 0xda) {
+      let end = bytes.length - 1;
+      while (end > pos && !(bytes[end] === 0xd9 && bytes[end - 1] === 0xff)) end--;
+      if (end > pos && bytes.length - (end + 1) > 0) {
+        addField(info.fields, 'jpeg', 'Trailing bytes', `${bytes.length - (end + 1)} bytes`, { category: 'other', risk: 'medium' });
+      }
+    }
+  }
+
+  function readGifSubBlocks(bytes, start) {
+    let at = start;
+    const chunks = [];
+    while (at < bytes.length) {
+      const size = bytes[at];
+      at += 1;
+      if (size === 0) break;
+      chunks.push(bytes.subarray(at, at + size));
+      at += size;
+    }
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const data = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.length; }
+    return { end: at, data };
+  }
+
+  function inspectGifMetadata(info, bytes) {
+    if (bytes.length < 13) return;
+    const flags = bytes[10];
+    let pos = 13;
+    if (flags & 0x80) pos += Math.pow(2, ((flags & 0x07) + 1)) * 3;
+    let sawTrailer = false;
+    while (pos < bytes.length) {
+      const block = bytes[pos];
+      if (block === 0x3b) { pos += 1; sawTrailer = true; break; }
+      if (block === 0x21) {
+        const label = bytes[pos + 1];
+        const sub = readGifSubBlocks(bytes, pos + 2);
+        if (label === 0xfe) {
+          addField(info.fields, 'gif', 'Comment', latin1Decoder.decode(sub.data).replace(/\0+$/g, '').trim(), { category: 'other', risk: 'high' });
+        } else if (label === 0x01) {
+          addField(info.fields, 'gif', 'Plain text extension', latin1Decoder.decode(sub.data).replace(/\0+$/g, '').trim(), { category: 'other', risk: 'high' });
+        } else if (label === 0xff) {
+          const appId = latin1Decoder.decode(sub.data.subarray(0, 11)).trim();
+          if (/XMP/i.test(appId)) {
+            addField(info.fields, 'gif', 'XMP packet', latin1Decoder.decode(sub.data.subarray(11)).replace(/\0+$/g, ''), { category: 'identity', risk: 'high' });
+          } else if (/ICC/i.test(appId)) {
+            addField(info.fields, 'gif', 'ICC color profile', 'Present (preserved)', { category: 'technical', risk: 'low' });
+          } else if (/NETSCAPE|ANIMEXTS/i.test(appId)) {
+            addField(info.fields, 'gif', 'Animation extension', appId, { category: 'technical', risk: 'low' });
+          } else if (appId) {
+            addField(info.fields, 'gif', 'Application extension', appId, { category: 'other', risk: 'medium' });
+          }
+        }
+        pos = sub.end;
+      } else if (block === 0x2c) {
+        const descriptorFlags = bytes[pos + 9];
+        let at = pos + 10;
+        if (descriptorFlags & 0x80) at += Math.pow(2, ((descriptorFlags & 0x07) + 1)) * 3;
+        at += 1;
+        const sub = readGifSubBlocks(bytes, at);
+        pos = sub.end;
+      } else {
+        break;
+      }
+    }
+    if (sawTrailer && pos < bytes.length) {
+      addField(info.fields, 'gif', 'Trailing bytes', `${bytes.length - pos} bytes`, { category: 'other', risk: 'medium' });
+    }
+  }
+
+  function inspectWebpChunks(info, bytes) {
+    if (!bytesEqual(bytes, 'RIFF') || !bytesEqual(bytes, 'WEBP', 8)) return;
+    const view = dataViewFor(bytes);
+    const declared = view.getUint32(4, true) + 8;
+    let pos = 12;
+    while (pos + 8 <= bytes.length) {
+      const type = asciiBytes(bytes, pos, 4);
+      const length = view.getUint32(pos + 4, true);
+      const total = 8 + length + (length % 2);
+      if (pos + total > bytes.length) break;
+      if (type === 'XMP ') {
+        addField(info.fields, 'webp', 'XMP packet', utf8Decoder.decode(bytes.subarray(pos + 8, pos + 8 + length)).replace(/\0+$/g, ''), { category: 'identity', risk: 'high' });
+      } else if (type === 'EXIF') {
+        addField(info.fields, 'webp', 'EXIF segment', `${length} bytes`, { category: 'other', risk: 'medium' });
+      } else if (type === 'C2PA') {
+        addField(info.fields, 'webp', 'C2PA manifest', `${length} bytes`, { category: 'software', risk: 'medium' });
+      } else if (type === 'ICCP') {
+        addField(info.fields, 'webp', 'ICC color profile', 'Present (preserved)', { category: 'technical', risk: 'low' });
+      }
+      pos += total;
+    }
+    if (declared < bytes.length) {
+      addField(info.fields, 'webp', 'Trailing bytes', `${bytes.length - declared} bytes`, { category: 'other', risk: 'medium' });
+    }
+  }
+
+  function inspectPngChunks(info, bytes) {
+    if (!bytesEqual(bytes, '\x89PNG\r\n\x1a\n')) return;
+    const view = dataViewFor(bytes);
+    let pos = 8;
+    let sawIend = false;
+    while (pos + 12 <= bytes.length) {
+      const length = view.getUint32(pos, false);
+      const type = asciiBytes(bytes, pos + 4, 4);
+      const total = 12 + length;
+      if (pos + total > bytes.length) break;
+      if (type === 'C2PA') {
+        addField(info.fields, 'png', 'C2PA manifest', `${length} bytes`, { category: 'software', risk: 'medium' });
+      } else if (type === 'tIME') {
+        const data = bytes.subarray(pos + 8, pos + 8 + length);
+        if (data.length >= 7) {
+          const stamp = `${data[0]}-${String(data[1]).padStart(2, '0')}-${String(data[2]).padStart(2, '0')}T${String(data[3]).padStart(2, '0')}:${String(data[4]).padStart(2, '0')}:${String(data[5]).padStart(2, '0')}Z`;
+          addField(info.fields, 'png', 'Modification time', stamp);
+        }
+      }
+      pos += total;
+      if (type === 'IEND') { sawIend = true; break; }
+    }
+    if (sawIend && pos < bytes.length) {
+      addField(info.fields, 'png', 'Trailing bytes', `${bytes.length - pos} bytes`, { category: 'other', risk: 'medium' });
+    }
+  }
+
+  function flattenExifResult(info, result) {
+    if (!result || typeof result !== 'object') return;
+    const thumbnailSections = new Set();
+    const hasThumbnailData = (key, value) => {
+      if (!/thumbnail/i.test(key)) return false;
+      const numeric = value && typeof value === 'object' ? value.value : value;
+      if (numeric === 0 || numeric === '0') return false;
+      if (value && typeof value === 'object' && value.description === '0px') return false;
+      return true;
+    };
+    Object.keys(result).forEach(section => {
+      const values = result[section];
+      if (!values || typeof values !== 'object') return;
+      Object.keys(values).forEach(key => {
+        if (key === '_raw' || key === 'base64') return;
+        const value = values[key];
+        if (value && typeof value === 'object' && (value.description || value.value)) {
+          const label = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+          if (/thumbnail/i.test(label)) {
+            if (hasThumbnailData(key, value) && !thumbnailSections.has(section)) {
+              thumbnailSections.add(section);
+              addField(info.fields, section, 'Embedded thumbnail', 'Present', { category: 'thumbnail', risk: 'high' });
+            }
+          } else {
+            addField(info.fields, section, label, value.description || value.value);
+          }
+        } else if (/thumbnail/i.test(key)) {
+          if (hasThumbnailData(key, value) && !thumbnailSections.has(section)) {
+            thumbnailSections.add(section);
+            addField(info.fields, section, 'Embedded thumbnail', 'Present', { category: 'thumbnail', risk: 'high' });
+          }
+        } else {
+          const label = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+          addField(info.fields, section, label, value);
+        }
+      });
+    });
+
+    const latRaw = result.gps && result.gps.Latitude;
+    const lonRaw = result.gps && result.gps.Longitude;
+    const lat = latRaw && typeof latRaw === 'object' ? latRaw.value : latRaw;
+    const lon = lonRaw && typeof lonRaw === 'object' ? lonRaw.value : lonRaw;
+    if (typeof lat === 'number' && typeof lon === 'number') {
+      addField(info.fields, 'gps', 'GPS location', `${lat.toFixed(6)}, ${lon.toFixed(6)}`, { category: 'location', risk: 'high' });
+      addField(info.fields, 'gps', 'GPS map', `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`, { category: 'location', risk: 'high' });
+    }
+  }
+
+/* ---- Image cleaning ---- */
+
+  function dataViewFor(bytes) {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  function cleanImageBytes(format, bytes) {
+    if (format === 'jpeg') return stripJpegSafe(bytes);
+    if (format === 'png') return stripPngSafe(bytes);
+    if (format === 'webp') return stripWebpSafe(bytes);
+    if (format === 'gif') return stripGifSafe(bytes);
+    if (format === 'tiff') return neutralizeTiffMetadata(bytes);
+    if (format === 'bmp') return stripBmpTrailing(bytes);
+    return { bytes, actions: ['No binary metadata remover available; original returned.'], method: 'container check' };
+  }
+
+  function stripJpegSafe(bytes) {
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return { bytes, actions: [], method: 'container check' };
+    const orientation = readJpegOrientation(bytes);
+    const parts = [bytes.subarray(0, 2)];
+    let pos = 2;
+    let stripped = false;
+    let removedBytes = 0;
+    let preservedIcc = false;
+    let removedJfifThumbnail = false;
+    let insertedOrientation = false;
+
+    while (pos + 1 < bytes.length) {
+      if (bytes[pos] !== 0xff) break;
+      const marker = bytes[pos + 1];
+      if (marker === 0xda) break;
+      if (marker === 0xd9) break;
+
+      if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        parts.push(bytes.subarray(pos, pos + 2));
+        pos += 2;
+        continue;
+      }
+
+      if (pos + 4 > bytes.length) break;
+      const segLength = (bytes[pos + 2] << 8) | bytes[pos + 3];
+      const segmentTotal = 2 + segLength;
+      if (segmentTotal <= 0 || pos + segmentTotal > bytes.length) break;
+      const isApp0 = marker === 0xe0;
+      const isAdobe = marker === 0xee;
+      const isIcc = marker === 0xe2 && asciiBytes(bytes, pos + 4, 12).startsWith('ICC_PROFILE');
+      const isMetadataApp = marker >= 0xe1 && marker <= 0xef;
+      let jfifThumbnailRemoved = false;
+
+      if (isApp0 && asciiBytes(bytes, pos + 4, 5) === 'JFIF\0' && bytes[pos + 16] && bytes[pos + 17]) {
+        const trimmedApp0 = new Uint8Array(18);
+        trimmedApp0.set(bytes.subarray(pos, pos + 18), 0);
+        trimmedApp0[2] = 0;
+        trimmedApp0[3] = 16;
+        trimmedApp0[16] = 0;
+        trimmedApp0[17] = 0;
+        parts.push(trimmedApp0);
+        stripped = true;
+        removedJfifThumbnail = true;
+        removedBytes += segmentTotal - 18;
+      } else if (isApp0 && asciiBytes(bytes, pos + 4, 5) === 'JFXX\0') {
+        stripped = true;
+        removedBytes += segmentTotal;
+      } else if (isMetadataApp && !isIcc) {
+        stripped = true;
+        removedBytes += segmentTotal;
+      } else if (marker === 0xfe) {
+        stripped = true;
+        removedBytes += segmentTotal;
+      } else if (isIcc) {
+        preservedIcc = true;
+        parts.push(bytes.subarray(pos, pos + segmentTotal));
+      } else if (isApp0 || isAdobe || marker < 0xe0) {
+        parts.push(bytes.subarray(pos, pos + segmentTotal));
+      }
+      pos += segmentTotal;
+
+      if (!insertedOrientation && orientation && orientation !== 1 && (isApp0 || (!isMetadataApp && marker < 0xe0))) {
+        if (isApp0) {
+          parts.push(makeOrientationApp1(orientation));
+          insertedOrientation = true;
+        }
+      }
+    }
+
+    if (pos < bytes.length && bytes[pos] === 0xff && bytes[pos + 1] === 0xda) {
+      let end = bytes.length - 1;
+      while (end > pos && !(bytes[end - 1] === 0xff && bytes[end] === 0xd9)) end--;
+      if (end <= pos) end = bytes.length - 1;
+      parts.push(bytes.subarray(pos, end + 1));
+      const trailing = bytes.length - (end + 1);
+      if (trailing > 0) {
+        stripped = true;
+        removedBytes += trailing;
+      }
+    }
+
+    if (!stripped && !insertedOrientation) return { bytes, actions: [], method: 'byte surgery' };
+    if (orientation && orientation !== 1 && !insertedOrientation) {
+      parts.splice(1, 0, makeOrientationApp1(orientation));
+      insertedOrientation = true;
+    }
+
+    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      out.set(part, offset);
+      offset += part.length;
+    }
+    const actions = ['Removed EXIF/XMP/IPTC/comment APP segments'];
+    if (removedJfifThumbnail) actions.push('Removed the JFIF thumbnail');
+    if (preservedIcc) actions.push('Preserved ICC color profile');
+    if (insertedOrientation) actions.push('Preserved image orientation');
+    if (removedBytes > 0) actions.push(`Removed or neutralized ${formatBytes(removedBytes)} of metadata and trailing bytes`);
+    return { bytes: out, actions, method: 'byte surgery' };
+  }
+
+  function readJpegOrientation(bytes) {
+    let pos = 2;
+    while (pos + 4 < bytes.length && bytes[pos] === 0xff) {
+      const marker = bytes[pos + 1];
+      if (marker === 0xda) break;
+      const segLength = (bytes[pos + 2] << 8) | bytes[pos + 3];
+      if (marker === 0xe1 && pos + 2 + segLength <= bytes.length) {
+        const payload = bytes.subarray(pos + 4, pos + 2 + segLength);
+        return readTiffOrientation(payload);
+      }
+      pos += 2 + segLength;
+    }
+    return null;
+  }
+
+  function readTiffOrientation(payload) {
+    let start = 0;
+    if (asciiBytes(payload, 0, 6).startsWith('Exif')) start = 6;
+    if (start + 8 > payload.length) return null;
+    const littleEndian = !(payload[start] === 0x4d && payload[start + 1] === 0x4d);
+    const view = new DataView(payload.buffer, payload.byteOffset + start, payload.length - start);
+    const ifdOffset = view.getUint32(4, littleEndian);
+    if (ifdOffset + 2 > view.byteLength) return null;
+    const entries = view.getUint16(ifdOffset, littleEndian);
+    for (let i = 0; i < entries; i++) {
+      const entry = ifdOffset + 2 + (i * 12);
+      if (entry + 12 > view.byteLength) break;
+      if (view.getUint16(entry, littleEndian) === 274) {
+        const valueOffset = entry + 8;
+        return view.getUint16(valueOffset, littleEndian);
+      }
+    }
+    return null;
+  }
+
+  function makeOrientationApp1(orientation) {
+    const out = new Uint8Array(36);
+    out.set([0xff, 0xe1], 0);
+    out[2] = 0; out[3] = 32;
+    out.set([0x45, 0x78, 0x69, 0x66, 0x00, 0x00], 4);
+    out.set([0x4d, 0x4d, 0x00, 0x2a], 10);
+    out.set([0x00, 0x00, 0x00, 0x08], 14);
+    out[18] = 0; out[19] = 1;
+    out[20] = 0x01; out[21] = 0x12;
+    out[22] = 0; out[23] = 3;
+    out[24] = 0; out[25] = 0; out[26] = 0; out[27] = 1;
+    out[28] = 0; out[29] = orientation;
+    out[30] = 0; out[31] = 0;
+    out[32] = 0; out[33] = 0; out[34] = 0; out[35] = 0;
+    return out;
+  }
+
+  function stripPngSafe(bytes) {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    for (let i = 0; i < 8; i++) if (bytes[i] !== signature[i]) return { bytes, actions: [], method: 'container check' };
+    const view = dataViewFor(bytes);
+    const removed = new Set(['tEXt', 'iTXt', 'zTXt', 'eXIf', 'tIME', 'caBX', 'C2PA']);
+    const parts = [bytes.subarray(0, 8)];
+    let pos = 8;
+    let stripped = false;
+    let removedBytes = 0;
+    let sawIend = false;
+    while (pos + 12 <= bytes.length) {
+      const len = view.getUint32(pos, false);
+      const type = asciiBytes(bytes, pos + 4, 4);
+      const total = 12 + len;
+      if (len < 0 || pos + total > bytes.length) break;
+      if (removed.has(type)) {
+        stripped = true;
+        removedBytes += total;
+      } else {
+        parts.push(bytes.subarray(pos, pos + total));
+      }
+      pos += total;
+      if (type === 'IEND') { sawIend = true; break; }
+    }
+    let trailing = 0;
+    if (sawIend && pos < bytes.length) trailing = bytes.length - pos;
+    if (trailing > 0) {
+      stripped = true;
+      removedBytes += trailing;
+    }
+    if (!stripped) return { bytes, actions: [], method: 'byte surgery' };
+    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) { out.set(part, offset); offset += part.length; }
+    return {
+      bytes: out,
+      actions: ['Removed PNG textual metadata, EXIF, timestamps and C2PA chunks', `Removed ${formatBytes(removedBytes)}`],
+      method: 'byte surgery'
+    };
+  }
+
+  function stripWebpSafe(bytes) {
+    if (!bytesEqual(bytes, 'RIFF') || !bytesEqual(bytes, 'WEBP', 8)) return { bytes, actions: [], method: 'container check' };
+    const view = dataViewFor(bytes);
+    const removed = new Set(['EXIF', 'XMP ', 'C2PA']);
+    const chunks = [];
+    let pos = 12;
+    let stripped = false;
+    while (pos + 8 <= bytes.length) {
+      const type = asciiBytes(bytes, pos, 4);
+      const len = view.getUint32(pos + 4, true);
+      const total = 8 + len + (len % 2);
+      if (len < 0 || pos + total > bytes.length) break;
+      chunks.push({ type, start: pos, total });
+      if (removed.has(type)) stripped = true;
+      pos += total;
+    }
+    if (!stripped) return { bytes, actions: [], method: 'byte surgery' };
+    const keep = chunks.filter(chunk => !removed.has(chunk.type));
+    const bodySize = keep.reduce((sum, chunk) => sum + chunk.total, 0);
+    const out = new Uint8Array(12 + bodySize);
+    out.set(bytes.subarray(0, 12), 0);
+    const outView = new DataView(out.buffer);
+    outView.setUint32(4, 4 + bodySize, true);
+    let offset = 12;
+    for (const chunk of keep) {
+      out.set(bytes.subarray(chunk.start, chunk.start + chunk.total), offset);
+      if (chunk.type === 'VP8X' && chunk.total >= 18) {
+        out[offset + 8] &= ~0x08;
+        out[offset + 8] &= ~0x04;
+        out[offset + 8] &= ~0x01;
+      }
+      offset += chunk.total;
+    }
+    return { bytes: out, actions: ['Removed EXIF and XMP chunks', 'Kept ICC color profile when present', 'Corrected VP8X feature flags'], method: 'byte surgery' };
+  }
+
+  function stripGifSafe(bytes) {
+    if (!bytesEqual(bytes, 'GIF8')) return { bytes, actions: [], method: 'container check' };
+    const flags = bytes[10];
+    const globalTableSize = Math.pow(2, ((flags & 0x07) + 1));
+    let pos = 13;
+    if (flags & 0x80) pos += globalTableSize * 3;
+    const parts = [bytes.subarray(0, pos)];
+    let stripped = false;
+    let removedBytes = 0;
+    let stopped = false;
+
+    function readSubBlocks(start) {
+      let at = start;
+      const blocks = [];
+      while (at < bytes.length) {
+        const size = bytes[at];
+        at += 1;
+        if (size === 0) { at += 0; break; }
+        const total = size;
+        blocks.push(bytes.subarray(at, at + total));
+        at += total;
+      }
+      return { end: at, blocks };
+    }
+
+    while (pos < bytes.length && !stopped) {
+      const block = bytes[pos];
+      if (block === 0x3b) {
+        parts.push(bytes.subarray(pos, pos + 1));
+        pos += 1;
+        stopped = true;
+        break;
+      }
+      if (block === 0x21) {
+        const label = bytes[pos + 1];
+        const sub = readSubBlocks(pos + 2);
+        const allBytes = bytes.subarray(pos + 2, sub.end);
+        let keep = true;
+        if (label === 0xfe) keep = false;
+        if (label === 0x01) keep = false;
+        if (label === 0xff) {
+          const first = allBytes.subarray(1, 12);
+          const appId = latin1Decoder.decode(first).trim();
+          keep = /NETSCAPE|ANIMEXTS|ICC/i.test(appId);
+        }
+        if (keep) parts.push(bytes.subarray(pos, sub.end));
+        else {
+          stripped = true;
+          removedBytes += sub.end - pos;
+        }
+        pos = sub.end;
+      } else if (block === 0x2c) {
+        const descriptorLen = 10;
+        const localFlags = bytes[pos + 9];
+        let len = descriptorLen;
+        if (localFlags & 0x80) len += Math.pow(2, ((localFlags & 0x07) + 1)) * 3;
+        let at = pos + len;
+        at += 1;
+        const sub = readSubBlocks(at);
+        parts.push(bytes.subarray(pos, sub.end));
+        pos = sub.end;
+      } else {
+        stripped = true;
+        removedBytes += 1;
+        pos += 1;
+      }
+    }
+
+    if (pos < bytes.length) {
+      stripped = true;
+      removedBytes += bytes.length - pos;
+    }
+
+    if (!stopped && parts[parts.length - 1].length !== 1) {
+      parts.push(new Uint8Array([0x3b]));
+    }
+    if (!stripped) return { bytes, actions: [], method: 'byte surgery' };
+    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) { out.set(part, offset); offset += part.length; }
+    return {
+      bytes: out,
+      actions: ['Removed comments, plain-text and non-animation application extensions', `Removed ${formatBytes(removedBytes)}`],
+      method: 'byte surgery'
+    };
+  }
+
+  function stripBmpTrailing(bytes) {
+    if (bytes[0] !== 0x42 || bytes[1] !== 0x4d) return { bytes, actions: [], method: 'container check' };
+    const bmp = readBmpInfo(bytes);
+    const end = bmpPixelEnd(bmp);
+    if (end === null) {
+      return { bytes, actions: [], method: 'container check', safe: false };
+    }
+    if (end >= bytes.length) return { bytes, actions: [], method: 'byte surgery' };
+    const out = bytes.slice(0, end);
+    const outView = new DataView(out.buffer);
+    outView.setUint32(2, out.length, true);
+    return { bytes: out, actions: [`Removed ${formatBytes(bytes.length - end)} of trailing bytes`], method: 'byte surgery' };
+  }
+
+  function tiffTypeSize(type) {
+    return {
+      1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 4, 9: 8, 10: 4, 11: 8, 12: 8, 16: 8, 17: 8, 18: 8, 19: 4
+    }[type] || null;
+  }
+
+  function neutralizeTiffMetadata(bytes) {
+    if (!bytesEqual(bytes, 'II\x2a\x00') && !bytesEqual(bytes, 'MM\x00\x2a')) {
+      return { bytes, actions: [], method: 'container check' };
+    }
+    const out = bytes.slice();
+    const view = dataViewFor(out);
+    const littleEndian = out[0] !== 0x4d;
+    const u16 = (offset) => view.getUint16(offset, littleEndian);
+    const u32 = (offset) => view.getUint32(offset, littleEndian);
+    const keepTags = new Set([254, 256, 257, 258, 259, 262, 273, 274, 277, 278, 279, 282, 283, 284, 296, 320, 322, 323, 324, 325, 339, 34675]);
+    const subIfdTags = new Map([[34665, 'exif'], [34853, 'gps'], [40965, 'interop']]);
+    const visited = new Set();
+    let neutralizedBytes = 0;
+    let neutralizedTags = 0;
+
+    function neutralizeIfd(ifdOffset, structural) {
+      if (ifdOffset + 2 > out.length || visited.has(ifdOffset)) return;
+      visited.add(ifdOffset);
+      const count = u16(ifdOffset);
+      const entryStart = ifdOffset + 2;
+      for (let i = 0; i < count; i++) {
+        const entry = entryStart + (i * 12);
+        if (entry + 12 > out.length) break;
+        const tag = u16(entry);
+        const type = view.getUint16(entry + 2, littleEndian);
+        if (!tag || !type) continue;
+        const tagCount = u32(entry + 4);
+        const typeSize = tiffTypeSize(type);
+        if (!typeSize || tagCount <= 0 || tagCount > 1e7) continue;
+        const size = typeSize * tagCount;
+        const valueOffset = size <= 4 ? entry + 8 : u32(entry + 8);
+        if (subIfdTags.has(tag) && valueOffset + 2 <= out.length) {
+          neutralizeIfd(valueOffset, false);
+        }
+        if (structural && keepTags.has(tag) && !subIfdTags.has(tag) && !(tag === 700)) {
+          continue;
+        }
+        if (valueOffset >= 0 && size > 0 && valueOffset + size <= out.length) {
+          for (let b = valueOffset; b < valueOffset + size; b++) out[b] = 0;
+          neutralizedBytes += size;
+        }
+        view.setUint16(entry, 0, littleEndian);
+        view.setUint16(entry + 2, 0, littleEndian);
+        neutralizedTags++;
+      }
+      const nextIfd = u32(entryStart + (count * 12));
+      if (nextIfd && nextIfd + 2 <= out.length) neutralizeIfd(nextIfd, structural);
+    }
+
+    neutralizeIfd(u32(4), true);
+    if (!neutralizedTags) return { bytes, actions: [], method: 'byte surgery' };
+    return {
+      bytes: out,
+      actions: [`Neutralized ${neutralizedTags} TIFF metadata tags in place`, `Zeroed ${formatBytes(neutralizedBytes)} of metadata value bytes`, 'Preserved structural image tags and ICC/Orientation data'],
+      method: 'in-place erase'
+    };
+  }
+
+/* ---- SVG cleaning ---- */
+
+  function cleanSvgText(text) {
+    try {
+      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      const comments = [];
+      const walker = doc.createTreeWalker(doc, 128 /* COMMENT_NODE */, null);
+      while (walker.nextNode()) comments.push(walker.currentNode);
+      comments.forEach(node => node.parentNode && node.parentNode.removeChild(node));
+
+      const removals = [];
+      const removeNode = node => {
+        removals.push(node);
+        if (node.parentNode) node.parentNode.removeChild(node);
+      };
+      Array.from(doc.getElementsByTagName('*')).forEach(node => {
+        const local = node.localName;
+        if (local === 'metadata' || local === 'script' || local === 'title' || local === 'desc' || local === 'namedview') {
+          removeNode(node);
+        }
+      });
+      Array.from(doc.getElementsByTagName('*')).forEach(node => {
+        const attributes = Array.from(node.attributes || []);
+        for (const attr of attributes) {
+          if (/^(inkscape|sodipodi|illustrator|adobe):/i.test(attr.name)) {
+            node.removeAttribute(attr.name);
+            removals.push(attr);
+          }
+        }
+      });
+      const out = new XMLSerializer().serializeToString(doc);
+      if (!removals.length || out === text) return { text, actions: [], method: 'XML surgery' };
+      return {
+        text: out,
+        actions: [`Removed ${removals.length} metadata, title/description, script, or editor-specific node(s) and attribute(s)`],
+        method: 'XML surgery'
+      };
+    } catch (error) {
+      return { text, actions: ['Could not safely rewrite SVG; original returned.'], method: 'container check' };
+    }
+  }
+
+/* ---- Audio metadata parsing ---- */
+
+  async function parseAudioMedia(info) {
+    if (info.format === 'm4a') {
+      await parseIsoMedia(info, { isVideo: false });
+      return;
+    }
+    const bytes = await readSome(info.file, 64 * 1024 * 1024);
+    if (info.format === 'mp3') parseId3Metadata(bytes, info.fields);
+    else if (info.format === 'wav') parseWavMetadata(bytes, info.fields);
+    else if (info.format === 'flac') parseFlacMetadata(bytes, info.fields);
+    else if (info.format === 'ogg') parseOggMetadata(bytes, info);
+  }
+
+  function decodeId3Text(data) {
+    if (!data.length) return '';
+    const encoding = data[0];
+    const payload = data.subarray(1);
+    if (encoding === 1) return new TextDecoder('utf-16le').decode(payload).replace(/\uFEFF/g, '');
+    if (encoding === 2) return new TextDecoder('utf-16be').decode(payload).replace(/\uFEFF/g, '');
+    if (encoding === 3) return new TextDecoder('utf-8').decode(payload).replace(/\0/g, '');
+    return latin1Decoder.decode(payload).replace(/\0/g, '');
+  }
+
+  function getId3v2Range(bytes, offset = 0) {
+    if (offset + 10 > bytes.length || asciiBytes(bytes, offset, 3) !== 'ID3') return null;
+    const version = bytes[offset + 3];
+    const flags = bytes[offset + 5];
+    const size = ((bytes[offset + 6] & 0x7f) << 21) | ((bytes[offset + 7] & 0x7f) << 14) | ((bytes[offset + 8] & 0x7f) << 7) | (bytes[offset + 9] & 0x7f);
+    const footer = version === 4 && (flags & 0x10) ? 10 : 0;
+    return { start: offset, end: offset + 10 + size + footer };
+  }
+
+  function parseId3Metadata(bytes, fields) {
+    const range = getId3v2Range(bytes);
+    if (range && range.end <= bytes.length) {
+      const version = bytes[3];
+      let pos = 10;
+      while (pos + 10 < range.end) {
+        let frameId = '';
+        let headerSize = 6;
+        let payloadSize = 0;
+        if (version < 3) {
+          frameId = asciiBytes(bytes, pos, 3);
+          headerSize = 6;
+          payloadSize = (bytes[pos + 3] << 16) | (bytes[pos + 4] << 8) | bytes[pos + 5];
+        } else {
+          frameId = asciiBytes(bytes, pos, 4);
+          headerSize = 10;
+          payloadSize = version === 4
+            ? (((bytes[pos + 4] & 0x7f) << 21) | ((bytes[pos + 5] & 0x7f) << 14) | ((bytes[pos + 6] & 0x7f) << 7) | (bytes[pos + 7] & 0x7f))
+            : ((bytes[pos + 4] << 24) | (bytes[pos + 5] << 16) | (bytes[pos + 6] << 8) | bytes[pos + 7]);
+        }
+        if (!/^[A-Z0-9]{3,4}$/.test(frameId) || payloadSize <= 0 || pos + headerSize + payloadSize > range.end) break;
+        const data = bytes.subarray(pos + headerSize, pos + headerSize + payloadSize);
+        const frameEnd = pos + headerSize + payloadSize;
+        if (frameId === 'APIC') {
+          addField(fields, 'id3', 'Cover art', 'Present', { category: 'thumbnail', risk: 'high' });
+        } else {
+          const value = decodeId3Text(data).trim();
+          addField(fields, 'id3', frameId, value);
+        }
+        pos = frameEnd;
+      }
+    }
+
+    if (bytes.length >= 128 && asciiBytes(bytes, bytes.length - 128, 3) === 'TAG') {
+      const start = bytes.length - 128;
+      addField(fields, 'id3v1', 'Title', latin1Decoder.decode(bytes.subarray(start + 3, start + 33)));
+      addField(fields, 'id3v1', 'Artist', latin1Decoder.decode(bytes.subarray(start + 33, start + 63)));
+      addField(fields, 'id3v1', 'Album', latin1Decoder.decode(bytes.subarray(start + 63, start + 93)));
+      addField(fields, 'id3v1', 'Year', latin1Decoder.decode(bytes.subarray(start + 93, start + 97)));
+    }
+  }
+
+  function parseWavMetadata(bytes, fields) {
+    const view = dataViewFor(bytes);
+    let pos = 12;
+    while (pos + 8 <= bytes.length) {
+      const type = asciiBytes(bytes, pos, 4);
+      const size = view.getUint32(pos + 4, true);
+      if (size > bytes.length - pos - 8) break;
+      const chunkEnd = pos + 8 + size;
+      if (type === 'LIST' && asciiBytes(bytes, pos + 8, 4) === 'INFO') {
+        let at = pos + 12;
+        while (at + 8 <= chunkEnd) {
+          const infoId = asciiBytes(bytes, at, 4);
+          const infoLen = view.getUint32(at + 4, true);
+          if (infoLen > chunkEnd - at - 8) break;
+          addField(fields, 'wav:info', infoId, latin1Decoder.decode(bytes.subarray(at + 8, at + 8 + infoLen)).replace(/\0+$/g, ''));
+          at += 8 + infoLen + (infoLen % 2);
+        }
+      } else if (['id3 ', 'bext', 'iXML', 'guano', 'C2PA'].includes(type)) {
+        addField(fields, 'wav', `${type.trim()} metadata chunk`, `${size} bytes`, { category: 'software', risk: 'medium' });
+      }
+      pos = chunkEnd + (size % 2);
+    }
+  }
+
+  function parseVorbisCommentData(bytes, start, end, fields) {
+    const view = dataViewFor(bytes);
+    let at = start;
+    if (at + 4 > end) return;
+    const vendorLength = view.getUint32(at, true);
+    at += 4 + vendorLength;
+    if (at + 4 > end) return;
+    const count = view.getUint32(at, true);
+    at += 4;
+    for (let i = 0; i < count && at + 4 <= end; i++) {
+      const len = view.getUint32(at, true);
+      at += 4;
+      if (len < 0 || at + len > end) break;
+      const comment = utf8Decoder.decode(bytes.subarray(at, at + len));
+      at += len;
+      const eq = comment.indexOf('=');
+      if (eq > 0) addField(fields, 'comment', comment.slice(0, eq), comment.slice(eq + 1));
+    }
+  }
+
+  function parseFlacMetadata(bytes, fields) {
+    let pos = 4;
+    while (pos + 4 <= bytes.length) {
+      const last = bytes[pos] & 0x80;
+      const type = bytes[pos] & 0x7f;
+      const length = (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3];
+      if (type === 4 && pos + 4 + length <= bytes.length) parseVorbisCommentData(bytes, pos + 4, pos + 4 + length, fields);
+      if (type === 6) addField(fields, 'flac', 'Embedded picture', 'Present', { category: 'thumbnail', risk: 'high' });
+      if (type !== 0) addField(fields, 'flac', `Metadata block ${type}`, `${length} bytes`, { category: 'software', risk: 'low' });
+      pos += 4 + length;
+      if (last) break;
+    }
+  }
+
+  function readOggPage(bytes, offset) {
+    if (offset + 27 > bytes.length || !bytesEqual(bytes, 'OggS', offset)) return null;
+    const segments = bytes[offset + 26];
+    if (offset + 27 + segments > bytes.length) return null;
+    let bodySize = 0;
+    for (let i = 0; i < segments; i++) bodySize += bytes[offset + 27 + i];
+    return { offset, headerSize: 27 + segments, bodySize, pageSize: 27 + segments + bodySize, segments };
+  }
+
+  function parseOggMetadata(bytes, info) {
+    const fields = info.fields;
+    const page1 = readOggPage(bytes, 0);
+    if (!page1) return;
+    let pos = page1.pageSize;
+    const page2 = readOggPage(bytes, pos);
+    if (!page2) return;
+    const bodyStart = pos + page2.headerSize;
+    let vorbisStart = bodyStart;
+    if (bytesEqual(bytes, '\x03vorbis', bodyStart)) vorbisStart = bodyStart + 7;
+    else if (bytesEqual(bytes, 'OpusTags', bodyStart)) vorbisStart = bodyStart + 8;
+    else {
+      info.notes.push('The second Ogg page is not a recognised Vorbis/Opus comment header; safe comment rewriting is unavailable.');
+      info.canClean = false;
+      return;
+    }
+    parseVorbisCommentData(bytes, vorbisStart, bodyStart + page2.bodySize, fields);
+
+    let packetEnds = false;
+    for (let i = 0; i < page2.segments; i++) {
+      if (bytes[pos + 27 + i] < 255) { packetEnds = true; break; }
+    }
+    if (!packetEnds) {
+      info.notes.push('The Vorbis/Opus comment packet spans multiple Ogg pages; safe comment rewriting is unavailable.');
+      info.canClean = false;
+    }
+  }
+
+/* ---- Audio cleaning ---- */
+
+  function cleanAudioBytes(format, bytes) {
+    if (format === 'mp3') return stripId3Tags(bytes);
+    if (format === 'wav') return stripWavMetadata(bytes);
+    if (format === 'flac') return stripFlacMetadata(bytes);
+    if (format === 'ogg') return stripOggVorbisComment(bytes);
+    return { bytes, actions: [], method: 'container check' };
+  }
+
+  function getId3v1Range(bytes) {
+    if (bytes.length >= 128 && asciiBytes(bytes, bytes.length - 128, 3) === 'TAG') return { start: bytes.length - 128, end: bytes.length };
+    return null;
+  }
+
+  function getApeTagRange(bytes) {
+    const searchStart = Math.max(0, bytes.length - 65536);
+    for (let pos = bytes.length - 32; pos >= searchStart; pos--) {
+      if (asciiBytes(bytes, pos, 8) === 'APETAGEX') {
+        const view = dataViewFor(bytes);
+        const size = view.getUint32(pos + 12, false);
+        let start = pos + 32 - size;
+        if (start < 0) start = pos;
+        return { start, end: pos + 32 };
+      }
+    }
+    return null;
+  }
+
+  function stripId3Tags(bytes) {
+    let start = 0;
+    let id3v2Count = 0;
+    while (true) {
+      const range = getId3v2Range(bytes, start);
+      if (!range || range.end <= start || range.end > bytes.length) break;
+      start = range.end;
+      id3v2Count++;
+    }
+    const id3v1 = getId3v1Range(bytes);
+    const ape = getApeTagRange(bytes);
+    const tailStarts = [];
+    if (id3v1) tailStarts.push(id3v1.start);
+    if (ape) tailStarts.push(ape.start);
+    let end = bytes.length;
+    if (tailStarts.length) {
+      end = Math.min(...tailStarts);
+      if (end < start) end = bytes.length;
+    }
+    if (!id3v2Count && !id3v1 && !ape) return { bytes, actions: [], method: 'byte surgery' };
+    if (start >= end) return { bytes, actions: [], method: 'byte surgery' };
+    const out = bytes.slice(start, end);
+    const actions = [];
+    if (id3v2Count) actions.push(`Removed ${id3v2Count} ID3v2 header section${id3v2Count === 1 ? '' : 's'}`);
+    if (id3v1) actions.push('Removed ID3v1 trailer');
+    if (ape) actions.push('Removed APEv2 tag');
+    actions.push(`Removed ${formatBytes(bytes.length - out.length)} of audio tag bytes`);
+    return { bytes: out, actions, method: 'byte surgery', bytesRemoved: bytes.length - out.length };
+  }
+
+  function stripWavMetadata(bytes) {
+    const view = dataViewFor(bytes);
+    const chunks = [];
+    let pos = 12;
+    let removedBytes = 0;
+    while (pos + 8 <= bytes.length) {
+      const type = asciiBytes(bytes, pos, 4);
+      const size = view.getUint32(pos + 4, true);
+      if (size > bytes.length - pos - 8) break;
+      const chunkTotal = 8 + size;
+      const paddedTotal = chunkTotal + (size % 2);
+      let keep = true;
+      if (type === 'LIST' && asciiBytes(bytes, pos + 8, 4) === 'INFO') keep = false;
+      if (['id3 ', 'bext', 'iXML', 'guano', 'C2PA'].includes(type)) keep = false;
+      if (keep) chunks.push(bytes.slice(pos, Math.min(pos + paddedTotal, bytes.length)));
+      else removedBytes += Math.min(paddedTotal, bytes.length - pos);
+      pos += paddedTotal;
+    }
+    if (!removedBytes) return { bytes, actions: [], method: 'byte surgery' };
+    const bodyLength = 4 + chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const out = new Uint8Array(8 + bodyLength);
+    const outView = new DataView(out.buffer);
+    out.set([0x52, 0x49, 0x46, 0x46], 0);
+    outView.setUint32(4, bodyLength, true);
+    out.set([0x57, 0x41, 0x56, 0x45], 8);
+    let offset = 12;
+    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length; }
+    return { bytes: out, actions: [`Removed RIFF LIST/INFO, ID3, BWF and XML metadata chunks`, `Removed ${formatBytes(removedBytes)}`], method: 'byte surgery' };
+  }
+
+  function stripFlacMetadata(bytes) {
+    if (!bytesEqual(bytes, 'fLaC')) return { bytes, actions: [], method: 'container check' };
+    const parts = [bytes.subarray(0, 4)];
+    let pos = 4;
+    let streamInfo = null;
+    let removedBlocks = 0;
+    let removedBytes = 0;
+    let frameStart = bytes.length;
+    while (pos + 4 <= bytes.length) {
+      const last = bytes[pos] & 0x80;
+      const type = bytes[pos] & 0x7f;
+      const length = (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3];
+      const data = bytes.subarray(pos + 4, pos + 4 + length);
+      if (type === 0 && !streamInfo) streamInfo = data;
+      else {
+        removedBlocks++;
+        removedBytes += 4 + length;
+      }
+      pos += 4 + length;
+      frameStart = pos;
+      if (last) break;
+    }
+    if (!streamInfo || (!removedBlocks && pos >= bytes.length)) return { bytes, actions: [], method: 'byte surgery' };
+    const streamInfoHeader = new Uint8Array([
+      0x80,
+      (streamInfo.length >> 16) & 0xff,
+      (streamInfo.length >> 8) & 0xff,
+      streamInfo.length & 0xff
+    ]);
+    parts.push(streamInfoHeader);
+    parts.push(streamInfo);
+    if (frameStart < bytes.length) parts.push(bytes.subarray(frameStart));
+    const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+    let offset = 0;
+    for (const part of parts) { out.set(part, offset); offset += part.length; }
+    return {
+      bytes: out,
+      actions: [`Removed ${removedBlocks} FLAC metadata blocks`, 'Preserved STREAMINFO and all audio frames'],
+      method: 'byte surgery'
+    };
+  }
+
+  function oggCrc32(data) {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let r = i << 24;
+      for (let j = 0; j < 8; j++) r = (r & 0x80000000) ? ((r << 1) ^ 0x04c11db7) : (r << 1);
+      table[i] = r >>> 0;
+    }
+    let crc = 0;
+    for (let i = 0; i < data.length; i++) crc = ((crc << 8) ^ table[((crc >>> 24) ^ data[i]) & 0xff]) >>> 0;
+    return crc >>> 0;
+  }
+
+  function buildOggPage(original, offset, newBody, presetSegments = null) {
+    let segments = presetSegments;
+    if (!segments) {
+      segments = [];
+      let remaining = newBody.length;
+      while (remaining >= 255) {
+        segments.push(255);
+        remaining -= 255;
+      }
+      segments.push(remaining);
+    }
+    const headerSize = 27 + segments.length;
+    const page = new Uint8Array(headerSize + newBody.length);
+    page.set(original.subarray(offset, offset + 27), 0);
+    page[26] = segments.length;
+    for (let i = 0; i < segments.length; i++) page[27 + i] = segments[i];
+    page.set(newBody, headerSize);
+    page[22] = page[23] = page[24] = page[25] = 0;
+    const crc = oggCrc32(page);
+    page[22] = crc & 0xff;
+    page[23] = (crc >>> 8) & 0xff;
+    page[24] = (crc >>> 16) & 0xff;
+    page[25] = (crc >>> 24) & 0xff;
+    return page;
+  }
+
+  function stripOggVorbisComment(bytes) {
+    const page1 = readOggPage(bytes, 0);
+    if (!page1) return { bytes, actions: [], method: 'container check' };
+    const page2Offset = page1.pageSize;
+    const page2 = readOggPage(bytes, page2Offset);
+    if (!page2) return { bytes, actions: [], method: 'container check' };
+    const bodyStart = page2Offset + page2.headerSize;
+    let prefixLength = 0;
+    if (bytesEqual(bytes, '\x03vorbis', bodyStart)) prefixLength = 7;
+    else if (bytesEqual(bytes, 'OpusTags', bodyStart)) prefixLength = 8;
+    else return { bytes, actions: [], method: 'container check' };
+
+    let packetEnd = null;
+    let packetEndSegment = -1;
+    let consumed = 0;
+    for (let i = 0; i < page2.segments; i++) {
+      const lace = bytes[page2Offset + 27 + i];
+      consumed += lace;
+      if (lace < 255) {
+        packetEnd = bodyStart + consumed;
+        packetEndSegment = i;
+        break;
+      }
+    }
+    if (packetEnd === null) {
+      return {
+        bytes,
+        actions: [],
+        method: 'container check',
+        safe: false,
+        reason: 'The Vorbis/Opus comment packet spans multiple Ogg pages, so it cannot be rewritten safely by this tool.'
+      };
+    }
+
+    const empty = new Uint8Array(8);
+    const newComment = new Uint8Array(prefixLength + empty.length);
+    newComment.set(bytes.subarray(bodyStart, bodyStart + prefixLength), 0);
+    newComment.set(empty, prefixLength);
+    const page2End = page2Offset + page2.pageSize;
+    const remainingBody = bytes.subarray(packetEnd, page2End);
+    const remainingSegments = [];
+    for (let i = packetEndSegment + 1; i < page2.segments; i++) remainingSegments.push(bytes[page2Offset + 27 + i]);
+    const newBody = new Uint8Array(newComment.length + remainingBody.length);
+    newBody.set(newComment, 0);
+    newBody.set(remainingBody, newComment.length);
+    const rebuilt = buildOggPage(bytes, page2Offset, newBody, [newComment.length, ...remainingSegments]);
+    const parts = [bytes.subarray(0, page2Offset), rebuilt, bytes.subarray(page2End)];
+    const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+    let offset = 0;
+    for (const part of parts) { out.set(part, offset); offset += part.length; }
+    return { bytes: out, actions: ['Replaced the Vorbis/Opus comment header with an empty one', 'Preserved packet boundaries and recalculated the Ogg page checksum'], method: 'byte surgery' };
+  }
+
+/* ---- ISO media (MP4/MOV/M4A) ---- */
+
+  async function getIsoMoov(file) {
+    let offset = 0;
+    let ftyp = null;
+    let moov = null;
+    while (offset + 8 <= file.size) {
+      const header = new Uint8Array(await file.slice(offset, offset + 16).arrayBuffer());
+      if (header.length < 8) break;
+      const view = dataViewFor(header);
+      let size = view.getUint32(0, false);
+      const type = asciiBytes(header, 4, 4);
+      let headerSize = 8;
+      if (size === 1 && header.length >= 16) {
+        size = view.getUint32(8, false) * 4294967296 + view.getUint32(12, false);
+        headerSize = 16;
+      } else if (size === 0) {
+        size = file.size - offset;
+      }
+      if (size < headerSize || offset + size > file.size) break;
+      if (type === 'ftyp' && !ftyp) {
+        const ftypBytes = new Uint8Array(await file.slice(offset, offset + Math.min(size, 4096)).arrayBuffer());
+        ftyp = {
+          majorBrand: asciiBytes(ftypBytes, 8, 4).trim(),
+          compatibleBrands: []
+        };
+        for (let at = 16; at + 4 <= ftypBytes.length; at += 4) {
+          const brand = asciiBytes(ftypBytes, at, 4).trim();
+          if (brand && !/[\x00-\x1f]/.test(brand)) ftyp.compatibleBrands.push(brand);
+        }
+      }
+      if (type === 'moov') {
+        const moovBytes = new Uint8Array(await file.slice(offset, offset + size).arrayBuffer());
+        moov = moovBytes;
+        return { ftyp, moov };
+      }
+      offset += size;
+    }
+    return { ftyp, moov: null };
+  }
+
+  function* isoAtoms(bytes, view, start, end) {
+    let offset = start;
+    while (offset + 8 <= end) {
+      let size = view.getUint32(offset, false);
+      const type = asciiBytes(bytes, offset + 4, 4);
+      let headerSize = 8;
+      if (size === 1 && offset + 16 <= end) {
+        size = view.getUint32(offset + 8, false) * 4294967296 + view.getUint32(offset + 12, false);
+        headerSize = 16;
+      } else if (size === 0) {
+        size = end - offset;
+      }
+      if (size < headerSize || offset + size > end) break;
+      yield { type, offset, size, headerSize };
+      offset += size;
+    }
+  }
+
+  function parseIsoKeys(bytes, view, start, end) {
+    if (end - start < 8) return [];
+    const count = view.getUint32(start + 4, false);
+    const keys = [];
+    let at = start + 8;
+    for (let i = 0; i < count && at + 8 <= end; i++) {
+      const size = view.getUint32(at, false);
+      if (size < 8 || at + size > end) break;
+      keys.push(utf8Decoder.decode(bytes.subarray(at + 8, at + size)).trim());
+      at += size;
+    }
+    return keys;
+  }
+
+  function parseIsoIlst(bytes, view, start, end, keys, fields) {
+    for (const atom of isoAtoms(bytes, view, start, end)) {
+      const index = keys ? view.getUint32(atom.offset + 4, false) - 1 : -1;
+      const key = keys && index >= 0 && index < keys.length ? keys[index] : null;
+      for (const inner of isoAtoms(bytes, view, atom.offset + atom.headerSize, atom.offset + atom.size)) {
+        if (inner.type !== 'data' || inner.size <= inner.headerSize + 8) continue;
+        const dataType = view.getUint32(inner.offset + inner.headerSize + 4, false);
+        const valueStart = inner.offset + inner.headerSize + 8;
+        const valueEnd = inner.offset + inner.size;
+        let value;
+        if (dataType === 0) value = 'Binary data';
+        else value = utf8Decoder.decode(bytes.subarray(valueStart, valueEnd));
+        if (key) addField(fields, 'iso', key, value);
+        else addField(fields, 'iso', atom.type, value);
+      }
+    }
+  }
+
+  function parseIsoMetaBox(bytes, view, start, end, fields) {
+    let keys = null;
+    let ilst = null;
+    for (const atom of isoAtoms(bytes, view, start, end)) {
+      if (atom.type === 'keys') keys = parseIsoKeys(bytes, view, atom.offset + atom.headerSize, atom.offset + atom.size);
+      if (atom.type === 'ilst') ilst = atom;
+    }
+    if (!ilst) return;
+    if (keys && keys.length > 0) parseIsoIlst(bytes, view, ilst.offset + ilst.headerSize, ilst.offset + ilst.size, keys, fields);
+    else {
+      for (const atom of isoAtoms(bytes, view, ilst.offset + ilst.headerSize, ilst.offset + ilst.size)) {
+        for (const inner of isoAtoms(bytes, view, atom.offset + atom.headerSize, atom.offset + atom.size)) {
+          if (inner.type !== 'data' || inner.size <= inner.headerSize + 8) continue;
+          const value = utf8Decoder.decode(bytes.subarray(inner.offset + inner.headerSize + 8, inner.offset + inner.size));
+          addField(fields, 'iso', atom.type, value);
+        }
+      }
+    }
+  }
+
+  function parseIsoUdta(bytes, view, start, end, fields) {
+    for (const atom of isoAtoms(bytes, view, start, end)) {
+      if (atom.type === 'meta') {
+        parseIsoMetaBox(bytes, view, atom.offset + atom.headerSize + 4, atom.offset + atom.size, fields);
+        continue;
+      }
+      const textLength = view.getUint16(atom.offset + atom.headerSize, false);
+      const valueStart = atom.offset + atom.headerSize + 4;
+      const valueEnd = Math.min(valueStart + textLength, atom.offset + atom.size);
+      if (valueEnd > valueStart) {
+        const value = utf8Decoder.decode(bytes.subarray(valueStart, valueEnd)).trim();
+        if (value) addField(fields, 'iso', atom.type, value);
+      }
+    }
+  }
+
+  function parseIsoMvhd(bytes, view, atom, fields) {
+    const p = atom.offset + atom.headerSize;
+    if (atom.size < 20) return;
+    const version = bytes[p];
+    const e = 2082844800;
+    if (version === 0 && atom.size >= 20) {
+      const ct = view.getUint32(p + 4, false);
+      const mt = view.getUint32(p + 8, false);
+      const scale = view.getUint32(p + 12, false);
+      const duration = view.getUint32(p + 16, false);
+      addField(fields, 'iso', 'Creation time', ct ? new Date((ct - e) * 1000) : null);
+      addField(fields, 'iso', 'Modification time', mt ? new Date((mt - e) * 1000) : null);
+      addField(fields, 'iso', 'Duration seconds', scale ? duration / scale : null, { category: 'technical', risk: 'low' });
+    } else if (version === 1 && atom.size >= 32) {
+      const ct = view.getUint32(p + 4, false) * 4294967296 + view.getUint32(p + 8, false);
+      const mt = view.getUint32(p + 12, false) * 4294967296 + view.getUint32(p + 16, false);
+      const scale = view.getUint32(p + 20, false);
+      const duration = view.getUint32(p + 24, false) * 4294967296 + view.getUint32(p + 28, false);
+      addField(fields, 'iso', 'Creation time', ct ? new Date((ct - e) * 1000) : null);
+      addField(fields, 'iso', 'Modification time', mt ? new Date((mt - e) * 1000) : null);
+      addField(fields, 'iso', 'Duration seconds', scale ? duration / scale : null, { category: 'technical', risk: 'low' });
+    }
+  }
+
+  async function parseIsoMedia(info, { isVideo }) {
+    const iso = await getIsoMoov(info.file);
+    if (!iso.ftyp && !iso.moov) {
+      info.notes.push('No ISO BMFF metadata box was found.');
+      return;
+    }
+    if (iso.ftyp) {
+      addField(info.fields, 'iso', 'Major brand', iso.ftyp.majorBrand, { category: 'technical', risk: 'low' });
+      addField(info.fields, 'iso', 'Compatible brands', iso.ftyp.compatibleBrands.filter(Boolean).join(', '), { category: 'technical', risk: 'low' });
+    }
+    if (!iso.moov) return;
+    const bytes = iso.moov;
+    const view = dataViewFor(bytes);
+    let tracks = 0;
+    for (const atom of isoAtoms(bytes, view, 8, bytes.length)) {
+      if (atom.type === 'mvhd') parseIsoMvhd(bytes, view, atom, info.fields);
+      if (atom.type === 'trak') tracks++;
+      if (atom.type === 'meta') parseIsoMetaBox(bytes, view, atom.offset + atom.headerSize + 4, atom.offset + atom.size, info.fields);
+      if (atom.type === 'udta') parseIsoUdta(bytes, view, atom.offset + atom.headerSize, atom.offset + atom.size, info.fields);
+    }
+    if (tracks) addField(info.fields, 'iso', 'Track count', tracks, { category: 'technical', risk: 'low' });
+    addField(info.fields, 'iso', 'Media kind', isVideo ? 'Video' : 'Audio', { category: 'technical', risk: 'low' });
+  }
+
+  async function parseVideoMedia(info) {
+    if (['mp4', 'mov', 'm4v'].includes(info.format)) {
+      await parseIsoMedia(info, { isVideo: true });
+      return;
+    }
+    await parseWebmWithMediabunny(info);
+  }
+
+  async function parseWebmWithMediabunny(info) {
+    const module = await loadLibrary('mediabunny');
+    const input = new module.Input({ formats: module.ALL_FORMATS, source: new module.BlobSource(info.file) });
+    const tags = await input.getMetadataTags();
+    const format = await input.getFormat();
+    addField(info.fields, 'webm', 'Container', format.name, { category: 'technical', risk: 'low' });
+    flattenMediaTags(tags, info.fields, 'webm');
+  }
+
+  function flattenMediaTags(tags, fields, source) {
+    if (!tags) return;
+    for (const [key, value] of Object.entries(tags)) {
+      if (value === null || value === undefined) continue;
+      if (key === 'images' && Array.isArray(value)) {
+        if (value.length) addField(fields, source, 'Embedded images', `${value.length} image(s)`, { category: 'thumbnail', risk: 'high' });
+        continue;
+      }
+      const text = displayValue(value);
+      if (text) addField(fields, source, key, text);
+    }
+    if (tags.raw) {
+      for (const [key, value] of Object.entries(tags.raw)) {
+        const text = displayValue(value);
+        if (text) addField(fields, `${source}:raw`, key, text);
+      }
+    }
+  }
+
+  function zeroIsoTimestamps(bytes, view, atom) {
+    const p = atom.offset + atom.headerSize;
+    if (atom.type === 'mvhd' || atom.type === 'tkhd' || atom.type === 'mdhd') {
+      const version = bytes[p];
+      if (version === 0 && p + 12 < atom.offset + atom.size) {
+        view.setUint32(p + 4, 0, false);
+        view.setUint32(p + 8, 0, false);
+      } else if (version === 1 && p + 20 < atom.offset + atom.size) {
+        view.setUint32(p + 4, 0, false);
+        view.setUint32(p + 8, 0, false);
+        view.setUint32(p + 12, 0, false);
+        view.setUint32(p + 16, 0, false);
+      }
+    }
+  }
+
+  function setAtomType(bytes, offset, type) {
+    for (let i = 0; i < 4; i++) bytes[offset + 4 + i] = type.charCodeAt(i);
+  }
+
+  function processIsoContainer(bytes, view, start, end, allowReplace, stats) {
+    for (const atom of isoAtoms(bytes, view, start, end)) {
+      if ((atom.type === 'udta' || atom.type === 'meta') && allowReplace) {
+        bytes.fill(0, atom.offset + atom.headerSize, atom.offset + atom.size);
+        setAtomType(bytes, atom.offset, 'free');
+        stats.neutralizedBytes += atom.size - atom.headerSize;
+        stats.atoms++;
+        continue;
+      }
+      if (['mvhd', 'tkhd', 'mdhd'].includes(atom.type)) {
+        zeroIsoTimestamps(bytes, view, atom);
+        stats.timestamps++;
+      }
+      if (atom.type === 'trak' || atom.type === 'mdia' || atom.type === 'minf' || atom.type === 'moov') {
+        processIsoContainer(bytes, view, atom.offset + atom.headerSize, atom.offset + atom.size, true, stats);
+      }
+    }
+  }
+
+  function cleanIsoBytes(bytes) {
+    const out = bytes.slice();
+    const view = dataViewFor(out);
+    const stats = { neutralizedBytes: 0, atoms: 0, timestamps: 0 };
+    processIsoContainer(out, view, 0, out.length, true, stats);
+    const actions = [];
+    if (stats.atoms) actions.push(`Replaced ${stats.atoms} metadata atoms with empty free boxes`);
+    if (stats.timestamps) actions.push(`Zeroed timestamps in ${stats.timestamps} header boxes`);
+    if (!actions.length) return { bytes: out, actions: [], method: 'in-place erase' };
+    actions.push('Media sample data and chunk offsets were not moved');
+    return { bytes: out, actions, method: 'in-place erase', bytesRemoved: stats.neutralizedBytes };
+  }
+
+  async function cleanWebmFile(file, format) {
+    const module = await loadLibrary('mediabunny');
+    const input = new module.Input({ formats: module.ALL_FORMATS, source: new module.BlobSource(file) });
+    const outputFormat = format === 'mkv' ? new module.MkvOutputFormat() : new module.WebMOutputFormat();
+    const target = new module.BufferTarget();
+    const output = new module.Output({ format: outputFormat, target });
+    const conversion = await module.Conversion.init({
+      input,
+      output,
+      tracks: 'all',
+      tags: { creationTime: null },
+      copy: { mode: 'forced' },
+      showWarnings: false
+    });
+    if (!conversion.isValid) {
+      const reasons = (conversion.discardedTracks || []).map(item => item.reason).join(', ');
+      throw new Error(`Copy-only cleaning was not possible${reasons ? `: ${reasons}` : ''}.`);
+    }
+    await conversion.execute();
+    const mime = format === 'mkv' ? 'video/x-matroska' : 'video/webm';
+    const bytes = new Uint8Array(target.buffer);
+    return {
+      bytes,
+      actions: ['Removed descriptive tags with a copy-only Matroska/WebM remux', 'Media packets were copied without transcoding'],
+      method: 'copy-only remux'
+    };
+  }
+
+/* ---- PDF metadata ---- */
+
+  async function parsePdfDocument(info) {
+    const module = await loadLibrary('pdflib');
+    const { PDFDocument } = module;
+    const bytes = await readSome(info.file, 256 * 1024 * 1024);
+    let pdf;
+    try {
+      pdf = await PDFDocument.load(bytes, { updateMetadata: false });
+    } catch (error) {
+      throw new Error(`PDF could not be parsed locally: ${error.message}`);
+    }
+
+    try {
+      const pageCount = pdf.getPageCount();
+      addField(info.fields, 'pdf', 'Page count', pageCount, { category: 'technical', risk: 'low' });
+      const standard = {
+        Title: pdf.getTitle(),
+        Author: pdf.getAuthor(),
+        Subject: pdf.getSubject(),
+        Creator: pdf.getCreator(),
+        Producer: pdf.getProducer(),
+        CreationDate: pdf.getCreationDate(),
+        ModificationDate: pdf.getModificationDate(),
+        Keywords: (() => {
+          const keywords = pdf.getKeywords();
+          if (!keywords) return null;
+          return Array.isArray(keywords) ? keywords.join(', ') : String(keywords);
+        })()
+      };
+      Object.entries(standard).forEach(([key, value]) => addField(info.fields, 'pdf', key, value));
+
+      const infoRef = pdf.context.trailerInfo.Info;
+      const infoDict = infoRef ? pdf.context.lookup(infoRef) : null;
+      if (infoDict && typeof infoDict.entries === 'function') {
+        for (const [name, value] of infoDict.entries()) {
+          addField(info.fields, 'pdf:info', name.asString().replace(/^\//, ''), pdfValueToText(value));
+        }
+      }
+
+      const rootDict = pdf.context.lookup(pdf.context.trailerInfo.Root);
+      if (rootDict && typeof rootDict.entries === 'function') {
+        for (const [name, value] of rootDict.entries()) {
+          const key = name.asString().replace(/^\//, '');
+          if (key === 'Metadata') {
+            const stream = pdf.context.lookup(value);
+            if (stream && typeof stream.getContents === 'function') {
+              addField(info.fields, 'pdf:xmp', 'XMP packet', 'Present', { category: 'software', risk: 'medium' });
+              parseXmpXml(utf8Decoder.decode(stream.getContents()), info.fields);
+            }
+          }
+        }
+      }
+
+      if (pdfHasSignature(pdf)) {
+        addField(info.fields, 'pdf', 'Digital signature', 'Present', { category: 'software', risk: 'medium' });
+        info.notes.push('This PDF has a digital signature. Rewriting may invalidate it; cleaning is disabled.');
+        info.canClean = false;
+      }
+      if (pdf.isEncrypted) {
+        info.notes.push('This PDF is encrypted; its metadata cannot be safely rewritten without the original password.');
+        info.canClean = false;
+      }
+    } catch (error) {
+      info.notes.push(`PDF inspection warning: ${error.message}`);
+    }
+  }
+
+  function pdfValueToText(value) {
+    if (!value) return '';
+    if (typeof value.decodeText === 'function') {
+      try { return value.decodeText(); } catch (_) {}
+    }
+    if (typeof value.asString === 'function') return value.asString();
+    if (value instanceof Date) return value.toISOString();
+    return String(value);
+  }
+
+  function parseXmpXml(text, fields) {
+    if (!text) return;
+    try {
+      const doc = new DOMParser().parseFromString(text, 'application/xml');
+      const elements = Array.from(doc.getElementsByTagName('*')).filter(el => el.children.length === 0);
+      for (const el of elements) {
+        const label = `${el.prefix ? el.prefix + ':' : ''}${el.localName}`;
+        addField(fields, 'pdf:xmp', label, el.textContent);
+        for (const attr of Array.from(el.attributes || [])) {
+          addField(fields, 'pdf:xmp', `${label} @${attr.name}`, attr.value);
+        }
+      }
+    } catch (_) {
+      addField(fields, 'pdf:xmp', 'Raw XMP', text);
+    }
+  }
+
+  function isPdfRefObject(obj) {
+    return !!obj && typeof obj === 'object' && typeof obj.tag === 'string' && /^\d+ \d+ R$/u.test(obj.tag);
+  }
+
+  function pdfDictEntry(obj, name) {
+    if (!obj || typeof obj.entries !== 'function') return null;
+    for (const [key, value] of obj.entries()) {
+      if (key.asString && key.asString() === `/${name}`) return value;
+    }
+    return null;
+  }
+
+  function walkPdfObject(obj, context, seen, callback) {
+    if (!obj) return;
+    if (isPdfRefObject(obj)) {
+      if (seen.has(obj.tag)) return;
+      seen.add(obj.tag);
+      const looked = context.lookup(obj);
+      walkPdfObject(looked, context, seen, callback);
+      return;
+    }
+    if (typeof obj.entries === 'function') {
+      callback(obj);
+      for (const [key, value] of obj.entries()) walkPdfObject(value, context, seen, callback);
+      if (obj.dict) walkPdfObject(obj.dict, context, seen, callback);
+    } else if (typeof obj.asArray === 'function') {
+      callback(obj);
+      for (const value of obj.asArray()) walkPdfObject(value, context, seen, callback);
+    } else if (obj.dict && typeof obj.dict.entries === 'function') {
+      callback(obj);
+      walkPdfObject(obj.dict, context, seen, callback);
+    }
+  }
+
+  function pdfHasSignature(pdf) {
+    const found = [];
+    walkPdfObject(pdf.context.trailerInfo.Root, pdf.context, new Set(), obj => {
+      if (typeof obj.entries !== 'function') return;
+      const subtype = pdfDictEntry(obj, 'Subtype');
+      const subtypeText = pdfValueToText(subtype).trim();
+      const fieldType = pdfValueToText(pdfDictEntry(obj, 'FT')).trim();
+      if (subtypeText === '/Sig' || fieldType === '/Sig' || subtypeText === '/DocMDP') found.push(subtypeText);
+    });
+    return found.length > 0;
+  }
+
+  async function cleanPdfFile(file) {
+    const module = await loadLibrary('pdflib');
+    const { PDFDocument, PDFName } = module;
+    const bytes = await readSome(file, 256 * 1024 * 1024);
+    const pdf = await PDFDocument.load(bytes, { updateMetadata: false });
+    if (pdf.isEncrypted) throw new Error('This PDF is encrypted; MetaStrip will not write an encrypted copy.');
+    if (pdfHasSignature(pdf)) throw new Error('This PDF has a digital signature. Rewriting may invalidate it.');
+
+    const infoRef = pdf.context.trailerInfo.Info;
+    const infoDict = infoRef ? pdf.context.lookup(infoRef) : null;
+    if (infoDict && typeof infoDict.entries === 'function') {
+      for (const [key] of infoDict.entries()) infoDict.delete(key);
+    }
+    pdf.context.trailerInfo.Info = undefined;
+    pdf.context.trailerInfo.ID = undefined;
+    if (isPdfRefObject(infoRef)) pdf.context.delete(infoRef);
+
+    const rootDict = pdf.context.lookup(pdf.context.trailerInfo.Root);
+    if (rootDict && typeof rootDict.entries === 'function') {
+      for (const name of ['Metadata', 'PieceInfo', 'Perms', 'MarkInfo']) {
+        rootDict.delete(PDFName.of(name));
+      }
+    }
+
+    walkPdfObject(pdf.context.trailerInfo.Root, pdf.context, new Set(), obj => {
+      if (typeof obj.entries !== 'function') return;
+      const subtype = pdfValueToText(pdfDictEntry(obj, 'Subtype')).trim();
+      if (['/Text', '/FreeText', '/Widget', '/Line', '/Square', '/Circle', '/Polygon', '/PolyLine', '/Ink', '/Stamp'].includes(subtype)) {
+        for (const name of ['T', 'M']) {
+          const key = pdfDictEntry(obj, name);
+          if (key) obj.delete(PDFName.of(name));
+        }
+      }
+    });
+
+    const seen = new Set();
+    walkPdfObject(pdf.context.trailerInfo.Root, pdf.context, seen, () => {});
+    if (pdf.context.trailerInfo.Encrypt) walkPdfObject(pdf.context.trailerInfo.Encrypt, pdf.context, seen, () => {});
+    for (const [ref] of pdf.context.enumerateIndirectObjects()) {
+      if (!seen.has(ref.tag)) pdf.context.delete(ref);
+    }
+
+    const output = await pdf.save({ useObjectStreams: true, updateMetadata: false });
+    return {
+      bytes: new Uint8Array(output),
+      actions: ['Cleared PDF info dictionary', 'Removed catalog XMP and PieceInfo', 'Removed unreferenced objects', 'Cleared annotation author and date fields'],
+      method: 'PDF rewrite'
+    };
+  }
+
+/* ---- ZIP, Office and OpenDocument ---- */
+
+  async function inspectZipContainer(file) {
+    const module = await loadLibrary('jszip');
+    const JSZip = module.default;
+    const buffer = await file.arrayBuffer();
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(buffer);
+    } catch (error) {
+      return {
+        file,
+        format: 'zip',
+        category: 'archive',
+        fields: [],
+        canClean: false,
+        notes: [`This ZIP package could not be parsed (${error.message || 'unknown ZIP error'}). Encrypted or unsupported archives are inspect-only.`]
+      };
+    }
+    const paths = [];
+    zip.forEach((path, entry) => {
+      if (!entry.dir) paths.push(path);
+    });
+
+    let format = 'zip';
+    if (zip.file('word/document.xml')) format = 'docx';
+    else if (zip.file('xl/workbook.xml')) format = 'xlsx';
+    else if (zip.file('ppt/presentation.xml')) format = 'pptx';
+    else if (zip.file('mimetype') && zip.file('content.xml')) format = 'odf';
+
+    const info = {
+      file,
+      format,
+      category: format === 'zip' ? 'archive' : 'document',
+      fields: [],
+      canClean: true,
+      notes: []
+    };
+
+    const comment = zip.comment || '';
+    addField(info.fields, 'zip', 'Archive comment', comment);
+    addField(info.fields, 'zip', 'Entry count', paths.length, { category: 'technical', risk: 'low' });
+    addField(info.fields, 'zip', 'Entry names', paths.slice(0, 50).join(', '), { category: 'technical', risk: 'low' });
+    if (documentVersionFor(file.name)) addField(info.fields, 'zip', 'Container type', documentVersionFor(file.name), { category: 'technical', risk: 'low' });
+
+    const signatures = paths.filter(path => /^_xmlsignatures\//i.test(path) || /^META-INF\/.*(?:signature|documentsignature)/i.test(path));
+    if (signatures.length) {
+      addField(info.fields, 'zip', 'Digital signature parts', signatures.join(', '), { category: 'software', risk: 'high' });
+      info.notes.push('This package contains digital signatures. Rewriting it would invalidate them, so cleaning is disabled.');
+      info.canClean = false;
+    }
+
+    const thumbnails = paths.filter(path => /^(?:docProps\/thumbnail\.|Thumbnails\/thumbnail\.)/i.test(path));
+    if (thumbnails.length) {
+      addField(info.fields, 'zip', 'Embedded thumbnail', thumbnails.join(', '), { category: 'thumbnail', risk: 'high' });
+      info.notes.push('The package thumbnail will be removed; it can reveal document content.');
+    }
+
+    if (format === 'docx' || format === 'xlsx' || format === 'pptx') {
+      await inspectOfficePackage(info, zip);
+    } else if (format === 'odf') {
+      await inspectOdfPackage(info, zip);
+    }
+
+    return info;
+  }
+
+  function documentVersionFor(name) {
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (!ext) return null;
+    if (['docx', 'xlsx', 'pptx'].includes(ext)) return ext.toUpperCase();
+    if (ext === 'odt') return 'OpenDocument Text';
+    if (ext === 'ods') return 'OpenDocument Spreadsheet';
+    if (ext === 'odp') return 'OpenDocument Presentation';
+    return null;
+  }
+
+  async function textEntry(zip, path) {
+    const entry = zip.file(path);
+    if (!entry) return null;
+    return entry.async('text');
+  }
+
+  function xmlDoc(text) {
+    return new DOMParser().parseFromString(text, 'application/xml');
+  }
+
+  function addXmlFields(doc, fields, source, skipNamespaces = []) {
+    if (!doc) return;
+    Array.from(doc.getElementsByTagName('*')).forEach(el => {
+      const local = el.localName || el.tagName;
+      if (!local || skipNamespaces.includes(local)) return;
+      if (el.children.length === 0 && el.textContent && el.textContent.trim()) {
+        addField(fields, source, local, el.textContent.trim());
+      }
+    });
+  }
+
+  async function inspectOfficePackage(info, zip) {
+    for (const path of ['docProps/core.xml', 'docProps/app.xml', 'docProps/custom.xml']) {
+      const text = await textEntry(zip, path);
+      if (text) {
+        const doc = xmlDoc(text);
+        Array.from(doc.getElementsByTagName('*')).forEach(el => {
+          if (el.children.length === 0 && el.textContent && el.textContent.trim()) {
+            addField(info.fields, `office:${path}`, el.localName, el.textContent.trim());
+          }
+        });
+      }
+    }
+
+    const authors = new Map();
+    for (const path of pathsUnder(zip, ['word/', 'xl/', 'ppt/'])) {
+      if (!/\.xml$/.test(path)) continue;
+      const text = await textEntry(zip, path);
+      if (!text || text.length > 20 * 1024 * 1024) continue;
+      const regex = /\b(w:author|w:date|w:initials|cp:lastModifiedBy|dc:creator)="([^"]*)"/g;
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        if (!authors.has(match[1])) authors.set(match[1], new Set());
+        authors.get(match[1]).add(match[2]);
+      }
+    }
+    for (const [attribute, values] of authors.entries()) {
+      const selected = Array.from(values).slice(0, 50).join(' | ');
+      addField(info.fields, 'office:authorship', attribute, selected);
+    }
+    if (authors.size) {
+      info.notes.push('Office authorship and date attributes will be cleared while visible comments and tracked-change text remain.');
+    }
+  }
+
+  function pathsUnder(zip, prefixes) {
+    const paths = [];
+    zip.forEach(path => paths.push(path));
+    return paths.filter(path => prefixes.some(prefix => path.startsWith(prefix)));
+  }
+
+  function clearXmlTagValues(xml, localNames) {
+    let output = xml;
+    for (const name of localNames) {
+      output = output.replace(new RegExp(`(<[^>]*?${name}[^>]*>)[^<]*(</[^>]*?>)`, 'g'), '$1$2');
+    }
+    return output;
+  }
+
+  function clearXmlAttributes(xml, attributeNames) {
+    let output = xml;
+    for (const name of attributeNames) {
+      output = output.replace(new RegExp(`\\s${name}="[^"]*"`, 'g'), '');
+    }
+    return output;
+  }
+
+  async function inspectOdfPackage(info, zip) {
+    const text = await textEntry(zip, 'meta.xml');
+    if (!text) return;
+    const doc = xmlDoc(text);
+    Array.from(doc.getElementsByTagName('*')).forEach(el => {
+      if (el.children.length === 0 && el.textContent && el.textContent.trim()) {
+        addField(info.fields, 'odf:meta', el.localName, el.textContent.trim());
+      }
+    });
+  }
+
+  function stripAllLeafText(xml) {
+    return xml.replace(/>([^<]+)</g, (match, text) => (text.trim() ? '><' : match));
+  }
+
+  function removeThumbnailRelationships(xml) {
+    return xml.replace(/<Relationship\b[^>]*Target="[^"]*thumbnail\.(?:jpe?g|png)"[^>]*\/>/gi, '');
+  }
+
+  function removeOdfThumbnailManifest(xml) {
+    return xml.replace(/<manifest:file-entry\b[^>]*full-path="Thumbnails\/thumbnail\.(?:jpe?g|png)"[^>]*\/>/gi, '');
+  }
+
+  async function cleanZipFile(file) {
+    const module = await loadLibrary('jszip');
+    const JSZip = module.default;
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const isOdf = !!zip.file('mimetype') && !!zip.file('content.xml');
+    const inputEntries = [];
+    zip.forEach((path, entry) => {
+      if (!entry.dir) inputEntries.push({ path, entry });
+    });
+
+    const cleanedEntries = [];
+    let cleanedXml = 0;
+    let removedThumbnails = 0;
+    const attributesToClear = [
+      'w:author', 'w:date', 'w:initials', 'cp:lastModifiedBy', 'dc:creator',
+      'meta:creation-date', 'meta:date', 'meta:printed-by', 'meta:initial-creator', 'meta:creator',
+      'w:rsidRoot', 'w:rsid', 'w:rsidR', 'w:rsidRDefault', 'w:rsidRPr', 'w:rsidP', 'w:rsidDel', 'w:rsidSect'
+    ];
+
+    for (const { path, entry } of inputEntries) {
+      if (/^(?:docProps\/thumbnail\.|Thumbnails\/thumbnail\.)/i.test(path)) {
+        removedThumbnails++;
+        continue;
+      }
+      let data = await entry.async('uint8array');
+      if (/\.(xml|rels)$/i.test(path)) {
+        const text = utf8Decoder.decode(data);
+        let cleaned = clearXmlAttributes(text, attributesToClear);
+        if (/(?:^|\/)(?:core|app|custom)\.xml$/i.test(path)) {
+          cleaned = stripAllLeafText(cleaned);
+        }
+        if (/(?:^|\/)meta\.xml$/i.test(path)) {
+          cleaned = stripAllLeafText(cleaned);
+        }
+        if (/\.rels$/i.test(path)) {
+          cleaned = removeThumbnailRelationships(cleaned);
+        }
+        if (/(?:^|\/)META-INF\/manifest\.xml$/i.test(path)) {
+          cleaned = removeOdfThumbnailManifest(cleaned);
+        }
+        if (cleaned !== text) cleanedXml++;
+        data = utf8Encoder.encode(cleaned);
+      }
+      cleanedEntries.push({ path, data });
+    }
+
+    const output = new JSZip();
+    if (isOdf) {
+      const mimetype = cleanedEntries.find(item => item.path === 'mimetype');
+      if (mimetype) output.file('mimetype', mimetype.data, { compression: 'STORE' });
+    }
+    for (const item of cleanedEntries) {
+      if (isOdf && item.path === 'mimetype') continue;
+      output.file(item.path, item.data);
+    }
+
+    const bytes = await output.generateAsync({
+      type: 'uint8array',
+      date: new Date(Date.UTC(1980, 0, 1)),
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    });
+    const actions = ['Removed archive comments and normalized ZIP entry timestamps'];
+    if (cleanedXml) actions.push(`Cleared metadata and authorship data in ${cleanedXml} XML/relationship parts`);
+    if (removedThumbnails) actions.push(`Removed ${removedThumbnails} embedded package thumbnail(s)`);
+    actions.push('Preserved package content entries');
+    return { bytes, actions, method: 'package rewrite' };
+  }
+
+/* ---- Strip orchestration ---- */
+
+  async function cleanFileInfo(info) {
+    const file = info.file;
+    const originalBytesLength = file.size;
+    if (info.format === 'svg') {
+      const text = await file.text();
+      const result = cleanSvgText(text);
+      const bytes = utf8Encoder.encode(result.text);
+      const blob = new Blob([bytes], { type: 'image/svg+xml' });
+      return { blob, bytes, actions: result.actions, method: result.method, bytesRemoved: Math.max(originalBytesLength - bytes.length, 0) };
+    }
+
+    if (info.category === 'image') {
+      const bytes = await readSome(file, 256 * 1024 * 1024);
+      const result = cleanImageBytes(info.format, bytes);
+      if (result.safe === false) throw new Error(result.reason || 'No safe metadata remover is available for this image variant.');
+      const blob = new Blob([result.bytes], { type: mimeForFormat(info.format, file.type) });
+      return { blob, bytes: result.bytes, actions: result.actions, method: result.method, bytesRemoved: Math.max(originalBytesLength - result.bytes.length, result.bytesRemoved || 0) };
+    }
+
+    if (info.category === 'audio' || info.category === 'video') {
+      if (info.format === 'webm' || info.format === 'mkv') {
+        const result = await cleanWebmFile(file, info.format);
+        const blob = new Blob([result.bytes], { type: mimeForFormat(info.format, file.type) });
+        return { blob, bytes: result.bytes, actions: result.actions, method: result.method, bytesRemoved: Math.max(originalBytesLength - result.bytes.length, 0) };
+      }
+      if (['mp4', 'mov', 'm4v', 'm4a'].includes(info.format)) {
+        const bytes = await readSome(file, MAX_WEBM_BUFFER);
+        const result = cleanIsoBytes(bytes);
+        const blob = new Blob([result.bytes], { type: mimeForFormat(info.format, file.type) });
+        return { blob, bytes: result.bytes, actions: result.actions, method: result.method, bytesRemoved: result.bytesRemoved || 0 };
+      }
+      const bytes = await readSome(file, 256 * 1024 * 1024);
+      const result = cleanAudioBytes(info.format, bytes);
+      if (result.safe === false) throw new Error(result.reason || 'No safe metadata remover is available for this audio variant.');
+      const blob = new Blob([result.bytes], { type: mimeForFormat(info.format, file.type) });
+      return { blob, bytes: result.bytes, actions: result.actions, method: result.method, bytesRemoved: Math.max(originalBytesLength - result.bytes.length, 0) };
+    }
+
+    if (info.category === 'pdf') {
+      const result = await cleanPdfFile(file);
+      const blob = new Blob([result.bytes], { type: 'application/pdf' });
+      return { blob, bytes: result.bytes, actions: result.actions, method: result.method, bytesRemoved: Math.max(originalBytesLength - result.bytes.length, 0) };
+    }
+
+    if (info.category === 'document' || info.category === 'archive') {
+      const result = await cleanZipFile(file);
+      const blob = new Blob([result.bytes], { type: file.type || 'application/zip' });
+      return { blob, bytes: result.bytes, actions: result.actions, method: result.method, bytesRemoved: Math.max(originalBytesLength - result.bytes.length, 0) };
+    }
+
+    throw new Error('This format is supported for inspection only.');
+  }
+
+  function mimeForFormat(format, fallback) {
+    const map = {
+      jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+      tiff: 'image/tiff', heic: 'image/heic', avif: 'image/avif', svg: 'image/svg+xml',
+      mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4',
+      mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', mkv: 'video/x-matroska'
+    };
+    return map[format] || fallback || 'application/octet-stream';
+  }
+
+  const utf8Encoder = new TextEncoder();
+
+  async function handleStrip() {
+    if (!state || !state.inspection || !state.inspection.canClean) return;
+    const button = $('stripBtn');
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span> Cleaning…';
+    setStatus('info', 'Cleaning');
+
+    try {
+      const original = state.file;
+      const inspection = state.inspection;
+      const cleaned = await cleanFileInfo(inspection);
+      const cleanedFile = new File([cleaned.blob], original.name, { type: cleaned.blob.type });
+      const after = await inspectFile(cleanedFile);
+      const diff = mergeFieldMaps(inspection.fields, after.fields);
+      const residual = residualSensitiveFields(after.fields);
+      const beforeSize = original.size;
+      const afterSize = cleaned.bytes.length;
+
+      state.cleanedFile = cleanedFile;
+      renderResult({
+        original,
+        cleaned,
+        after,
+        diff,
+        residual,
+        beforeSize,
+        afterSize,
+        inspection
+      });
+      setStatus(residual.length ? 'danger' : 'ok', residual.length ? 'Residual metadata' : 'Verified clean');
+    } catch (error) {
+      console.error(error);
+      $('resultSection').classList.remove('hidden');
+      $('resultNotice').innerHTML = `<div class="notice danger">${escapeHtml(error.message || 'Cleaning failed. The original file was not uploaded.')}</div>`;
+      setStatus('danger', 'Cleaning failed');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Strip metadata safely';
+    }
+  }
+
+  function renderResult(result) {
+    const { diff, residual } = result;
+    $('resultSection').classList.remove('hidden');
+    const reportRows = [];
+
+    diff.removed.forEach(field => {
+      reportRows.push({
+        outcome: 'Removed',
+        field
+      });
+    });
+    diff.kept.forEach(field => {
+      reportRows.push({
+        outcome: 'Kept',
+        field
+      });
+    });
+    diff.changed.forEach(field => {
+      reportRows.push({
+        outcome: 'Changed',
+        field
+      });
+    });
+    diff.added.forEach(field => {
+      reportRows.push({
+        outcome: 'Added',
+        field
+      });
+    });
+
+    const body = $('reportBody');
+    body.innerHTML = '';
+    if (!reportRows.length) {
+      $('reportEmpty').classList.remove('hidden');
+    } else {
+      $('reportEmpty').classList.add('hidden');
+      for (const row of reportRows) {
+        const field = row.field;
+        const value = row.outcome === 'Changed'
+          ? `${field.value} → ${field.afterValue}`
+          : field.value;
+        const tr = document.createElement('tr');
+        tr.className = row.outcome.toLowerCase();
+        tr.innerHTML =
+          `<td><span class="outcome ${row.outcome.toLowerCase()}">${row.outcome}</span></td>` +
+          `<td>${escapeHtml(field.category)}</td>` +
+          `<td><strong>${escapeHtml(field.label)}</strong><div style="color:var(--muted);font-size:.78rem;">${escapeHtml(field.source)}</div></td>` +
+          `<td>${escapeHtml(value)}</td>`;
+        body.appendChild(tr);
+      }
+    }
+
+    $('statMethod').textContent = result.cleaned.method;
+    $('statRemoved').textContent = String(diff.removed.length);
+    $('statKept').textContent = String(diff.kept.length);
+    $('statSize').textContent = `${formatBytes(result.beforeSize)} → ${formatBytes(result.afterSize)}`;
+
+    const actions = result.cleaned.actions && result.cleaned.actions.length
+      ? `<div style="margin-bottom:12px;font-size:.85rem;color:var(--muted);">Actions: ${result.cleaned.actions.map(escapeHtml).join(' · ')}</div>`
+      : '';
+    const residualText = residual.length
+      ? `<div class="notice danger"><strong>Verification blocked:</strong> ${residual.length} sensitive metadata field(s) were still found after cleaning.${residual.slice(0, 8).map(f => `<div>${escapeHtml(f.label)}: ${escapeHtml(f.value)}</div>`).join('')}</div>`
+      : '<div class="notice ok"><strong>Verified locally:</strong> the cleaned file was read again and no unexpected sensitive metadata was found.</div>';
+
+    const addedWarning = diff.added.length
+      ? `<div class="notice">The cleaned file contains ${diff.added.length} newly detected metadata field(s).</div>`
+      : '';
+
+    const unchangedNotice = !diff.removed.length && !diff.changed.length && !diff.added.length
+      ? '<div class="notice">No metadata fields changed. The cleaned copy preserves the original bytes for this format.</div>'
+      : '';
+
+    $('resultNotice').innerHTML = residualText + addedWarning + unchangedNotice + actions;
+
+    $('downloadBtn').disabled = residual.length > 0;
+    $('cleanedPreview').innerHTML = '';
+    $('cleanedPreview').appendChild(makePreview(result.after.file, result.after));
+    $('cleanedPanel').classList.remove('hidden');
+  }
+
+  $('downloadBtn').addEventListener('click', () => {
+    if (!state || !state.cleanedFile) return;
+    const url = URL.createObjectURL(state.cleanedFile);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `stripped_${state.file.name || 'file.bin'}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  });
+
+})();
+</script>
+</body>
+</html>

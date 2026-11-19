@@ -1,63 +1,127 @@
 ---
 name: metastrip
-description: View and strip EXIF metadata from photos client-side.
-version: 0.1.0
+description: Inspect and safely strip metadata from images, audio, video, PDFs, Office/OpenDocument files and ZIP archives — entirely in the browser.
+version: 0.2.0
 author: Kish Wachira (kish-00), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [privacy, security, exif, metadata, safety]
+    tags: [privacy, security, metadata, exif, exiftool, gps, documents, media, safety]
     related_skills: []
 ---
 
 # MetaStrip Skill
 
-A client-side EXIF metadata viewer and stripper for photos. Drop an image into the browser, see what metadata it's secretly sharing (GPS location, camera model, timestamps, device info), and download a clean copy with all EXIF removed.
+A client-side metadata inspector and safe stripper for common media and document formats. Drop a file into the browser, see exactly which metadata fields it contains, strip only what can be removed safely, and get a field-level report showing what was removed, what was preserved, and what could not be cleaned.
+
+Nothing is uploaded. There is no backend, build step, or install step.
 
 ## When to Use
 
-- You want to check what EXIF metadata a photo contains before sharing it online
-- You need to strip GPS location, camera serial numbers, or timestamps from an image
-- You want a privacy-first tool that never uploads your photo to a server
+- Check what a photo, audio file, video, PDF, Office document, or ZIP archive reveals before sharing it
+- Remove GPS location, author names, camera/device details, software fingerprints, timestamps, comments, thumbnails and similar metadata
+- Verify that a cleaned copy really no longer contains the fields you care about
+- Produce an honest audit trail: removed vs. intentionally preserved vs. residual/blocked
 
-Don't use for: batch processing many images at once, or editing metadata fields (this tool strips all EXIF, it doesn't edit individual fields).
+Don't use for: editing individual metadata values, batch processing folders, transcoding media, or guaranteeing anonymity. Metadata removal is not anonymization: visible content, file names, and statistical fingerprints remain.
 
-## Prerequisites
+## Supported Formats
 
-- A modern web browser with FileReader API and canvas support
-- No server, no API keys, no installation required
+### Inspect and clean (byte-level or lossless container rewrite)
+
+| Category | Formats | Method |
+| --- | --- | --- |
+| Images | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG | Surgical byte removal; no canvas re-encode |
+| Audio | MP3, WAV, FLAC, OGG/Vorbis/Opus, M4A | Tag removal or comment-header rewrite; audio packets untouched |
+| Video | MP4, MOV, M4V, WebM, MKV | In-place atom erase (ISO-BMFF) or copy-only remux (Matroska/WebM) |
+| Documents | PDF | PDF object rewrite; content streams untouched |
+| Documents | DOCX, XLSX, PPTX | OOXML package rewrite |
+| Documents | ODT, ODS, ODP | OpenDocument package rewrite |
+| Archives | ZIP | Comment removal and entry timestamp normalization |
+
+### Inspect only (no cleaned copy offered)
+
+- **HEIC/HEIF and AVIF** — parsed and reported, but no safe byte-level remover is implemented
+- **Encrypted ZIP / encrypted Office/ODF packages** — cannot be rewritten without the password
+- **Digitally signed OOXML/ODF packages** — rewriting would invalidate the signature
+- **Encrypted or signed PDFs** — rewriting is refused
+- **Unrecognised or unsupported containers** — reported as unsupported rather than presented as clean
+
+## What Is Removed vs. Preserved
+
+**Removed by default**
+
+- EXIF (camera, lens, serial numbers, GPS, timestamps, artist, copyright, descriptions), XMP, IPTC/Photoshop APP13, JPEG comments, JFIF/JFXX thumbnails, trailing appended data
+- PNG text chunks (`tEXt`, `iTXt`, `zTXt`), `eXIf`, `tIME`, C2PA chunks
+- WebP `EXIF`, `XMP ` and C2PA chunks
+- GIF comments, plain-text extensions, non-animation application extensions, trailing data
+- TIFF descriptive tags (description, make, model, software, artist, datetime, copyright, GPS/EXIF sub-IFDs)
+- SVG comments, `<metadata>`, `<title>`, `<desc>`, `<script>`, Inkscape/Sodipodi/Illustrator/Adobe editor attributes
+- MP3 ID3v2 (including multiple tags and footers), ID3v1 and APEv2
+- WAV `LIST/INFO`, `id3 `, `bext`, `iXML`, `guano`, C2PA chunks
+- FLAC non-STREAMINFO metadata blocks (Vorbis comments, pictures, padding, etc.)
+- OGG/Opus Vorbis comment headers (packet boundaries and page CRC preserved)
+- ISO-BMFF metadata atoms (`udta`, `meta`, `ilst`, `©*` tags, `XMP `, `uuid` metadata) and header timestamps
+- Matroska/WebM descriptive tags via a copy-only remux
+- PDF Info dictionary, catalog XMP/PieceInfo, annotation author/date fields, unreferenced objects
+- OOXML/ODF core/app/custom metadata text, authorship and revision IDs, embedded thumbnails and their relationships/manifest entries, archive comments, and entry timestamps
+
+**Intentionally preserved (and disclosed in the report)**
+
+- Image orientation, when removing EXIF would otherwise rotate the picture
+- ICC colour profiles needed for correct colour rendering
+- Codec/stream parameters, duration, dimensions, tracks, and all media sample data
+- Visible document content, including tracked changes and comment text
+- PDF page content and structure
 
 ## How to Run
 
-Open `index.html` in a browser, or visit the hosted version at https://kish-00.github.io/metastrip/
+Open `index.html` in a modern browser, or visit the hosted copy at https://kish-00.github.io/metastrip/
 
-1. Drag & drop a photo (JPEG, PNG, WebP) into the drop zone
-2. Review the EXIF metadata table — GPS coordinates include an OpenStreetMap link
-3. Click "Strip metadata & download" to get a clean copy
+1. Drag & drop one file (or use the file picker)
+2. Review the metadata table; GPS coordinates include an OpenStreetMap link
+3. Click **Strip metadata safely**
+4. Read the report: **Removed**, **Kept**, **Changed**, **Added**, and any residual/blocked warnings
+5. Only after reviewing the report, click **Download cleaned file**
+
+Cleaning never auto-downloads.
 
 ## Quick Reference
 
-- `index.html` — the complete skill (HTML/CSS/JS in one file)
-- Uses `exif-js` (from unpkg CDN) for EXIF parsing
-- Strips metadata via HTML5 canvas re-encoding
+- `index.html` — complete app (HTML/CSS/JS in one file)
+- CDN ES modules: `exifreader@4.54.0`, `jszip@3.10.2`, `pdf-lib@1.17.1`, `mediabunny@1.66.0`
+- Format detection is by magic bytes, not file extension or MIME type
+- Cleaned output is re-inspected and diffed before it can be downloaded
+- `metastrip-skill/` — packaged copy of this skill; `metastrip-skill.zip` — distributable archive
 
 ## Procedure
 
 1. Open `index.html` in your browser
-2. Drop an image file into the upload zone
-3. Read the metadata table to see what's exposed
-4. Click "Strip metadata & download" — the image is re-encoded locally through a canvas, producing a clean EXIF-free copy
-5. Nothing is uploaded to any server
+2. Drop a supported file into the upload zone
+3. Read the metadata table and any format-specific notes
+4. Click **Strip metadata safely**
+5. Confirm the report shows the expected fields as Removed and that intentionally kept technical fields are acceptable
+6. Download the cleaned copy only if the report has no unexplained residual warnings
 
 ## Pitfalls
 
-- Canvas re-encoding slightly recompresses JPEGs; PNGs stay lossless
-- GPS data is converted from degrees/minutes/seconds to decimal degrees for the map link
-- Some social platforms strip metadata automatically; this tool gives you control before you share
+- **Cleaning is not anonymization.** Visible content, filenames, and content fingerprints remain.
+- **Preserved orientation and ICC profiles are deliberate.** They are reported as Kept; removing them can rotate or discolour the image.
+- **ISO-BMFF in-place erase keeps file size roughly constant.** Removed atoms are replaced with empty `free` boxes so media offsets do not move. The report labels this method.
+- **Matroska/WebM cleaning is a copy-only remux.** Packets are copied without transcoding, but the container bytes are rewritten.
+- **Office/ODF cleaning preserves visible tracked changes and comments**, but clears their author names, initials, dates and revision IDs. Reviewing the content itself is still your responsibility.
+- **Digitally signed or encrypted packages are inspect-only.** Rewriting would break signatures or is impossible without credentials.
+- **HEIC/AVIF are inspect-only.** No safe remover is implemented, so the tool does not offer a misleading "clean" copy.
+- **Unusual container variants may be refused.** If a safe rewrite cannot be proven, the file is marked inspect-only rather than silently passed through.
+- **CDN access is required for the parsers** unless the libraries are vendored locally.
+- **Large files are bounded** by browser memory; very large media may fail to load.
 
 ## Verification
 
-- Open `index.html` and confirm the page loads without errors
-- Drop a JPEG with known GPS EXIF — confirm the GPS row appears with a map link
-- Click "Strip" — confirm the downloaded file has no EXIF when re-opened in MetaStrip
+- Open `index.html`; the page should load with no console errors and the drop zone visible
+- Drop a JPEG with GPS EXIF; confirm the metadata table shows GPS rows and an OpenStreetMap link
+- Strip it; confirm the report lists the GPS/EXIF fields as Removed, shows no residual warning, and offers a download
+- Re-open the downloaded file in MetaStrip; confirm the removed fields are gone and the image still renders
+- Repeat for one audio file, one video, one PDF, one DOCX/ODT, and one ZIP
+- Confirm a HEIC/AVIF or encrypted ZIP is reported as inspect-only with a note, not as successfully cleaned
