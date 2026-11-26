@@ -25,7 +25,7 @@ MetaStrip runs **entirely in your browser** via FileReader/Blob APIs. The only n
 
 1. **Drop a file** — format is detected from magic bytes, not the file extension.
 2. **See what's inside** — metadata is shown field by field; GPS coordinates are decoded and linked to OpenStreetMap.
-3. **Strip safely** — the tool uses format-aware byte surgery or lossless container rewrites instead of blindly re-encoding. Images keep their pixels; audio and video packets are not transcoded; PDF page content and document text are preserved.
+3. **Strip safely** — the tool uses format-aware byte surgery or lossless container rewrites instead of blindly re-encoding. Images keep their pixels; the normal audio/video path does not transcode; PDF page content and document text are preserved. A separate **X-compatible MP4** export is available only when the source codec would be rejected by X/Twitter.
 4. **Read the report** — every field is labelled **Removed**, **Kept**, **Changed**, or **Added**. Intentionally preserved technical metadata (such as image orientation and ICC colour profiles) is disclosed. If a safe rewrite cannot be proven, the file is marked *inspect-only* instead of being presented as clean.
 5. **Download deliberately** — cleaning never auto-downloads. You review the report first, and the cleaned output is re-inspected and diffed against the original before the download button is enabled.
 
@@ -45,7 +45,7 @@ MetaStrip runs **entirely in your browser** via FileReader/Blob APIs. The only n
 | --- | --- | --- |
 | Images | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG | Surgical byte removal; no canvas re-encode |
 | Audio | MP3, WAV, FLAC, OGG/Vorbis/Opus, M4A | Tag removal or comment-header rewrite; audio packets untouched |
-| Video | MP4, MOV, M4V, WebM, MKV | In-place atom erase (ISO-BMFF) or copy-only remux (Matroska/WebM) |
+| Video | MP4, MOV, M4V, WebM, MKV | In-place atom erase (ISO-BMFF) or copy-only remux (Matroska/WebM); optional X-compatible MP4 export can transcode incompatible video |
 | Documents | PDF | PDF object rewrite; content streams untouched |
 | Documents | DOCX, XLSX, PPTX | OOXML package rewrite |
 | Documents | ODT, ODS, ODP | OpenDocument package rewrite |
@@ -81,7 +81,7 @@ MetaStrip runs **entirely in your browser** via FileReader/Blob APIs. The only n
 **Intentionally preserved (and disclosed in the report):**
 
 - Image orientation, when removing EXIF would otherwise rotate the picture
-- ICC colour profiles needed for correct colour rendering
+- ICC colour profiles needed for correct colour rendering; identifying profile fields are neutralized while `A2B*`, `B2A*`, TRC and XYZ transform data is preserved
 - Codec/stream parameters, duration, dimensions, tracks, and all media sample data
 - Visible document content, including tracked changes and comment text
 - PDF page content and structure
@@ -104,16 +104,33 @@ Open `index.html` in any modern browser. That's it — no build, no install, no 
 
 > Note: the parser libraries are loaded from a CDN, so an internet connection is required on first load unless the libraries are vendored locally.
 
+## Optional X-compatible MP4 export
+
+Some MP4 files contain codecs that X/Twitter rejects, even when they play in Brave/Chromium. A common case is VP9 video in an MP4 container. Normal MetaStrip cleaning preserves the original codec, so a cleaned copy can still be rejected by X.
+
+For these files, the file summary includes a **Create X-compatible cleaned MP4** action. This export:
+
+- Converts rejected video to H.264 High Profile.
+- Uses AAC-LC mono/stereo audio, copying an already valid AAC-LC track when possible.
+- Uses a WebCodecs AVC encoder in your browser and targets the bitrate/quality available locally.
+- Preserves track count and duration, and verifies the result before enabling download.
+- Removes the metadata during the rewrite and zeroes ISO-BMFF timestamps.
+- Falls back to the pinned `@mediabunny/aac-encoder` WASM encoder when the browser has no native AAC encoder.
+- Never uploads the file; browser encoders can vary, so the final output is still reported honestly.
+
+This export is intentionally separate from the default lossless cleaner, because changing the video codec is not lossless. Compatibility is checked locally using the detected codec/dimensions; X can still reject files for more general account, duration, or size rules.
+
 ## Tech stack
 
 - **Vanilla HTML/CSS/JS** — one file, no build step, no framework
 - [ExifReader](https://github.com/mattiasw/ExifReader) — image EXIF/metadata parsing
 - [JSZip](https://stuk.github.io/jszip/) — ZIP, OOXML and OpenDocument package handling
 - [pdf-lib](https://pdf-lib.js.org/) — PDF metadata inspection and rewriting
-- [mediabunny](https://mediabunny.dev/) — audio/video metadata and copy-only Matroska/WebM remuxing
+- [mediabunny](https://mediabunny.dev/) — audio/video metadata, copy-only Matroska/WebM remuxing and optional X-compatible H.264/AAC-LC MP4 export
+- [@mediabunny/aac-encoder](https://mediabunny.dev/guide/extensions/aac-encoder) — optional pinned WASM AAC-LC encoder fallback
 - **Custom byte-level parsers/strippers** for JPEG, PNG, GIF, WebP, TIFF, BMP, SVG, MP3, WAV, FLAC, OGG and ISO-BMFF
 
-Pinned CDN versions: `exifreader@4.54.0`, `jszip@3.10.2`, `pdf-lib@1.17.1`, `mediabunny@1.66.0`.
+Pinned CDN versions: `exifreader@4.54.0`, `jszip@3.10.2`, `pdf-lib@1.17.1`, `mediabunny@1.65.2`; optional AAC encoder: `@mediabunny/aac-encoder@1.66.0`.
 
 ## Repository structure
 
@@ -130,6 +147,7 @@ Pinned CDN versions: `exifreader@4.54.0`, `jszip@3.10.2`, `pdf-lib@1.17.1`, `med
 - **Cleaning is not anonymization.** Visible content, filenames, and content fingerprints remain.
 - **Preserved orientation and ICC profiles are deliberate.** They are reported as Kept; removing them can rotate or discolour the image.
 - **ISO-BMFF in-place erase keeps file size roughly constant.** Removed atoms are replaced with empty `free` boxes so media offsets do not move. The report labels this method.
+- **The X-compatible export is not lossless.** It is an explicit alternative that may re-encode video to H.264/AAC-LC. Browser encoder availability and output bitrate vary; the app reports the actual output rather than promising a fixed file size.
 - **Matroska/WebM cleaning is a copy-only remux.** Packets are copied without transcoding, but the container bytes are rewritten.
 - **Office/ODF cleaning preserves visible tracked changes and comments**, but clears their author names, initials, dates and revision IDs. Reviewing the content itself is still your responsibility.
 - **Digitally signed or encrypted packages are inspect-only.** Rewriting would break signatures or is impossible without credentials.
