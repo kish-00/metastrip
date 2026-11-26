@@ -352,9 +352,15 @@
     <p id="metaEmpty" class="empty-state hidden">No readable metadata detected.</p>
   </div>
 
+  <div id="compatibilitySection" class="hidden">
+    <h3 style="margin-bottom: 8px; font-size: 1.05rem;">Upload compatibility</h3>
+    <div id="compatibilityNotice"></div>
+  </div>
+
   <div id="actionBar" class="action-bar hidden">
     <button class="btn btn-outline" id="resetBtn">Choose another file</button>
     <button class="btn btn-danger" id="stripBtn">Strip metadata safely</button>
+    <button class="btn btn-primary hidden" id="xExportBtn">Create X-compatible cleaned MP4</button>
   </div>
 
   <div id="resultSection" class="hidden">
@@ -395,12 +401,15 @@
   const latin1Decoder = new TextDecoder('latin1');
   const MAX_INSPECT_BYTES = 64 * 1024 * 1024;
   const MAX_WEBM_BUFFER = 512 * 1024 * 1024;
+  const X_VIDEO_BITRATE = 5000000;
+  const X_AUDIO_BITRATE = 128000;
 
   const CDN = {
     exifreader: 'https://cdn.jsdelivr.net/npm/exifreader@4.54.0/+esm',
     jszip: 'https://cdn.jsdelivr.net/npm/jszip@3.10.2/+esm',
     pdflib: 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm',
-    mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.66.0/+esm'
+    mediabunny: 'https://cdn.jsdelivr.net/npm/mediabunny@1.65.2/+esm',
+    mediabunnyAac: 'https://cdn.jsdelivr.net/npm/@mediabunny/aac-encoder@1.66.0/+esm'
   };
 
   const libraryCache = new Map();
@@ -455,20 +464,33 @@
   }
 
   function displayValue(value) {
-    if (value === null || value === undefined || value === '') return '';
-    if (Array.isArray(value)) return clampText(value.join(', '));
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) return cleanMetadataText(value.join(', '));
     if (value instanceof Date) return value.toISOString();
     if (typeof value === 'object') {
-      if (typeof value.description !== 'undefined') return clampText(value.description);
-      if (typeof value.value !== 'undefined') return clampText(displayValue(value.value));
-      return clampText(JSON.stringify(value));
+      if (typeof value.description !== 'undefined') return cleanMetadataText(value.description);
+      if (typeof value.value !== 'undefined') return cleanMetadataText(displayValue(value.value));
+      return cleanMetadataText(JSON.stringify(value));
     }
-    return clampText(value);
+    return cleanMetadataText(value);
+  }
+
+  function cleanMetadataText(value) {
+    return clampText(String(value ?? '').replace(/\0/g, '').trim());
+  }
+
+  function isNeutralIccValue(source, value) {
+    if (String(source).toLowerCase() !== 'icc') return false;
+    const text = displayValue(value).toLowerCase();
+    return text === 'icc' || text === 'icc profile' || text === 'none' ||
+      text === 'no copyright information' || text === '0' || text === '0000-00-00t00:00:00.000z' ||
+      text === '1970-01-01t00:00:00.000z' || text === '1970-01-01t00:00:00z';
   }
 
   function classifyField(source, label, value) {
     const id = `${source}:${label}`.toLowerCase();
     const valueText = displayValue(value).toLowerCase();
+    if (isNeutralIccValue(source, value)) return { category: 'technical', risk: 'low' };
     if (/gps|latitude|longitude|altitude|location|coordinates/.test(id) || /^-?\d+\.\d+, ?-?\d+\.\d+$/.test(valueText.trim())) {
       return { category: 'location', risk: 'high' };
     }
@@ -552,7 +574,7 @@
   function resetStateUI() {
     if (state && state.urls) state.urls.forEach(revokeUrl);
     state = null;
-    ['fileSummary', 'previewGrid', 'metaSection', 'actionBar', 'resultSection', 'cleanedPanel'].forEach(id => {
+    ['fileSummary', 'previewGrid', 'metaSection', 'compatibilitySection', 'actionBar', 'resultSection', 'cleanedPanel'].forEach(id => {
       $(id).classList.add('hidden');
     });
     $('metaBody').innerHTML = '';
@@ -566,6 +588,9 @@
     $('stripBtn').disabled = false;
     $('stripBtn').innerHTML = 'Strip metadata safely';
     $('downloadBtn').disabled = false;
+    $('xExportBtn').disabled = true;
+    $('xExportBtn').classList.add('hidden');
+    $('xExportBtn').textContent = 'Create X-compatible cleaned MP4';
   }
 
   function initEventHandlers() {
@@ -602,6 +627,7 @@
     });
 
     $('stripBtn').addEventListener('click', handleStrip);
+    $('xExportBtn').addEventListener('click', handleXCompatibleExport);
   }
 
   initEventHandlers();
@@ -656,6 +682,38 @@
     $('previewGrid').classList.remove('hidden');
     $('stripBtn').disabled = !inspection.canClean;
     $('stripBtn').innerHTML = inspection.canClean ? 'Strip metadata safely' : 'No safe cleaning available';
+    renderCompatibility(inspection);
+  }
+
+  function renderCompatibility(inspection) {
+    const section = $('compatibilitySection');
+    const notice = $('compatibilityNotice');
+    const button = $('xExportBtn');
+    const compatibility = inspection.compatibility;
+    if (!compatibility) {
+      section.classList.add('hidden');
+      button.classList.add('hidden');
+      button.disabled = true;
+      return;
+    }
+
+    section.classList.remove('hidden');
+    const issues = compatibility.issues.length
+      ? `<div><strong>Blocking issues:</strong><ul>${compatibility.issues.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>`
+      : '';
+    const recommendations = compatibility.recommendations.length
+      ? `<div><strong>Checks:</strong><ul>${compatibility.recommendations.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>`
+      : '';
+    notice.className = compatibility.ok ? 'notice ok' : 'notice';
+    notice.innerHTML = `<strong>${escapeHtml(compatibility.platform)}:</strong> ${escapeHtml(compatibility.summary)}${issues}${recommendations}`;
+    if (compatibility.canLocalExport && inspection.canClean) {
+      button.classList.remove('hidden');
+      button.disabled = false;
+      button.textContent = compatibility.ok ? 'Create X-compatible cleaned MP4' : 'Fix and create X-compatible MP4';
+    } else {
+      button.classList.add('hidden');
+      button.disabled = true;
+    }
   }
 /* ---- Detection and dispatch ---- */
 
@@ -1110,6 +1168,328 @@
     }
   }
 
+/* ---- ICC profile metadata sanitizer ---- */
+
+  const ICC_STRIP_TAGS = ['calt', 'dmdd', 'dmnd', 'meas', 'meta', 'psid', 'tech', 'vued'];
+
+  function md5(input) {
+    const originalLength = input.length;
+    let paddedLength = originalLength + 1;
+    const remainder = paddedLength % 64;
+    paddedLength += remainder <= 56 ? 56 - remainder : 64 - remainder + 56;
+    const totalLength = paddedLength + 8;
+    const message = new Uint8Array(totalLength);
+    message.set(input, 0);
+    message[originalLength] = 0x80;
+    const bitLengthLow = (originalLength * 8) >>> 0;
+    const bitLengthHigh = Math.floor((originalLength * 8) / 0x100000000);
+    message[totalLength - 8] = bitLengthLow & 0xff;
+    message[totalLength - 7] = (bitLengthLow >>> 8) & 0xff;
+    message[totalLength - 6] = (bitLengthLow >>> 16) & 0xff;
+    message[totalLength - 5] = (bitLengthLow >>> 24) & 0xff;
+    message[totalLength - 4] = bitLengthHigh & 0xff;
+    message[totalLength - 3] = (bitLengthHigh >>> 8) & 0xff;
+    message[totalLength - 2] = (bitLengthHigh >>> 16) & 0xff;
+    message[totalLength - 1] = (bitLengthHigh >>> 24) & 0xff;
+
+    const s = [
+      7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+      5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+      4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+      6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
+    ];
+    const k = new Uint32Array([
+      0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
+      0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+      0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+      0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+      0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
+      0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+      0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+      0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+      0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+      0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+      0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
+      0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+      0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
+      0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+      0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+      0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
+    ]);
+    let a0 = 0x67452301;
+    let b0 = 0xefcdab89;
+    let c0 = 0x98badcfe;
+    let d0 = 0x10325476;
+
+    function rotateLeft(x, c) {
+      return (x << c) | (x >>> (32 - c));
+    }
+
+    const words = new Uint32Array(16);
+    for (let chunkOffset = 0; chunkOffset < totalLength; chunkOffset += 64) {
+      for (let i = 0; i < 16; i++) {
+        const at = chunkOffset + i * 4;
+        words[i] = (message[at] | (message[at + 1] << 8) | (message[at + 2] << 16) | (message[at + 3] << 24)) >>> 0;
+      }
+      let a = a0;
+      let b = b0;
+      let c = c0;
+      let d = d0;
+      for (let i = 0; i < 64; i++) {
+        let f;
+        let g;
+        if (i < 16) {
+          f = (b & c) | (~b & d);
+          g = i;
+        } else if (i < 32) {
+          f = (d & b) | (~d & c);
+          g = (5 * i + 1) % 16;
+        } else if (i < 48) {
+          f = b ^ c ^ d;
+          g = (3 * i + 5) % 16;
+        } else {
+          f = c ^ (b | ~d);
+          g = (7 * i) % 16;
+        }
+        f = (f + a + k[i] + words[g]) >>> 0;
+        a = d;
+        d = c;
+        c = b;
+        b = (b + rotateLeft(f, s[i])) >>> 0;
+      }
+      a0 = (a0 + a) >>> 0;
+      b0 = (b0 + b) >>> 0;
+      c0 = (c0 + c) >>> 0;
+      d0 = (d0 + d) >>> 0;
+    }
+
+    const output = new Uint8Array(16);
+    let outputOffset = 0;
+    for (const value of [a0, b0, c0, d0]) {
+      output[outputOffset++] = value & 0xff;
+      output[outputOffset++] = (value >>> 8) & 0xff;
+      output[outputOffset++] = (value >>> 16) & 0xff;
+      output[outputOffset++] = (value >>> 24) & 0xff;
+    }
+    return output;
+  }
+
+  function writeIccAsciiNul(bytes, offset, text) {
+    for (let i = 0; i < text.length; i++) bytes[offset + i] = text.charCodeAt(i) & 0xff;
+    bytes[offset + text.length] = 0;
+  }
+
+  function writeUtf16beNul(bytes, offset, text) {
+    let at = offset;
+    for (let i = 0; i < text.length; i++) {
+      bytes[at++] = 0;
+      bytes[at++] = text.charCodeAt(i) & 0xff;
+    }
+    bytes[at++] = 0;
+    bytes[at++] = 0;
+  }
+
+  function writeIccTextDescriptor(bytes, view, offset, size, text) {
+    if (size < 8 + text.length + 1) return false;
+    bytes.fill(0, offset, offset + size);
+    for (let i = 0; i < 4; i++) {
+      bytes[offset + i] = 'text'.charCodeAt(i);
+      bytes[offset + 4 + i] = 0;
+    }
+    writeIccAsciiNul(bytes, offset + 8, text);
+    return true;
+  }
+
+  function writeIccDescriptionDescriptor(bytes, view, offset, size, text) {
+    const asciiLength = text.length + 1;
+    const required = 12 + asciiLength + 2 + 4 + 2 + 1 + 67;
+    if (size < required) return false;
+    bytes.fill(0, offset, offset + size);
+    for (let i = 0; i < 4; i++) bytes[offset + i] = 'desc'.charCodeAt(i);
+    view.setUint32(offset + 8, asciiLength, false);
+    writeIccAsciiNul(bytes, offset + 12, text);
+    view.setUint16(offset + 12 + asciiLength, 0, false);
+    view.setUint32(offset + 14 + asciiLength, 0, false);
+    view.setUint16(offset + 18 + asciiLength, 0, false);
+    bytes[offset + 20 + asciiLength] = 0;
+    return true;
+  }
+
+  function writeIccLocalizedDescriptor(bytes, view, offset, size, text) {
+    const utf16Length = (text.length + 1) * 2;
+    const required = 16 + 12 + utf16Length;
+    if (size < required) return false;
+    bytes.fill(0, offset, offset + size);
+    for (let i = 0; i < 4; i++) bytes[offset + i] = 'mluc'.charCodeAt(i);
+    view.setUint32(offset + 8, 1, false);
+    view.setUint32(offset + 12, 12, false);
+    bytes[offset + 16] = 'e';
+    bytes[offset + 17] = 'n';
+    bytes[offset + 18] = 'U';
+    bytes[offset + 19] = 'S';
+    view.setUint32(offset + 20, utf16Length, false);
+    view.setUint32(offset + 24, 28, false);
+    writeUtf16beNul(bytes, offset + 28, text);
+    return true;
+  }
+
+  function writeIccNeutralTag(bytes, view, profileOffset, tagSize, tagSignature) {
+    const candidates = tagSignature === 'cprt'
+      ? ['No copyright information', 'None']
+      : ['ICC Profile', 'None'];
+    const existingType = asciiBytes(bytes, profileOffset, 4);
+
+    for (const text of candidates) {
+      if (existingType === 'mluc') {
+        if (writeIccLocalizedDescriptor(bytes, view, profileOffset, tagSize, text)) return true;
+      } else if (tagSignature === 'desc' || existingType === 'desc') {
+        if (writeIccDescriptionDescriptor(bytes, view, profileOffset, tagSize, text)) return true;
+      } else if (writeIccTextDescriptor(bytes, view, profileOffset, tagSize, text)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function sanitizeIccProfile(input) {
+    if (input.length < 128) return null;
+    if (asciiBytes(input, 36, 4) !== 'acsp') return null;
+    const profile = input.slice();
+    const view = dataViewFor(profile);
+
+    // Neutralize optional provenance fields in the ICC header while retaining
+    // color-critical fields: version, device class, color spaces, attributes,
+    // PCS illuminant, and rendering intent.
+    profile.fill(0, 4, 8);
+    profile.fill(0, 40, 44);
+    profile.fill(0, 44, 48);
+    profile.fill(0, 48, 56);
+    profile.fill(0, 80, 100);
+    view.setUint16(24, 1970, false);
+    view.setUint16(26, 1, false);
+    view.setUint16(28, 1, false);
+    view.setUint16(30, 0, false);
+    view.setUint16(32, 0, false);
+    view.setUint16(34, 0, false);
+
+    const tagCount = view.getUint32(128, false);
+    if (tagCount > 4096 || 132 + (tagCount * 12) > profile.length) return null;
+
+    const kept = [];
+    for (let i = 0; i < tagCount; i++) {
+      const entryOffset = 132 + (i * 12);
+      const signature = asciiBytes(profile, entryOffset, 4);
+      const tagOffset = view.getUint32(entryOffset + 4, false);
+      const tagSize = view.getUint32(entryOffset + 8, false);
+      if (tagOffset < 128 || tagSize < 8 || tagOffset + tagSize > profile.length) return null;
+
+      if (ICC_STRIP_TAGS.includes(signature)) {
+        profile.fill(0, tagOffset, tagOffset + tagSize);
+        continue;
+      }
+
+      if (signature === 'desc' || signature === 'cprt') {
+        if (!writeIccNeutralTag(profile, view, tagOffset, tagSize, signature)) return null;
+      }
+      kept.push({ signature, tagOffset, tagSize });
+    }
+
+    if (!kept.some(entry => entry.signature === 'desc') ||
+        !kept.some(entry => entry.signature === 'cprt')) {
+      return null;
+    }
+
+    view.setUint32(128, kept.length, false);
+    for (let i = 0; i < kept.length; i++) {
+      const entryOffset = 132 + (i * 12);
+      for (let at = 0; at < 4; at++) profile[entryOffset + at] = kept[i].signature.charCodeAt(at);
+      view.setUint32(entryOffset + 4, kept[i].tagOffset, false);
+      view.setUint32(entryOffset + 8, kept[i].tagSize, false);
+    }
+    profile.fill(0, 132 + (kept.length * 12), 132 + (tagCount * 12));
+
+    // Recompute the ICC profile ID with the three fields that must be zeroed
+    // during hashing, as specified by ICC §7.2.18.
+    const hashProfile = profile.slice();
+    hashProfile.fill(0, 44, 48);
+    hashProfile.fill(0, 64, 68);
+    hashProfile.fill(0, 84, 100);
+    const profileId = md5(hashProfile);
+    profile.set(profileId, 84);
+
+    return profile;
+  }
+
+  function planJpegIccProgressive(bytes) {
+    const groups = new Map();
+    let pos = 2;
+
+    while (pos + 4 <= bytes.length && bytes[pos] === 0xff) {
+      const marker = bytes[pos + 1];
+      if (marker === 0xda || marker === 0xd9) break;
+      if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        pos += 2;
+        continue;
+      }
+      const segLength = (bytes[pos + 2] << 8) | bytes[pos + 3];
+      const segmentTotal = 2 + segLength;
+      if (segLength < 2 || pos + segmentTotal > bytes.length) break;
+      if (marker === 0xe2 && segLength >= 14 && asciiBytes(bytes, pos + 4, 12).startsWith('ICC_PROFILE')) {
+        const sequence = bytes[pos + 16];
+        const totalChunks = bytes[pos + 17];
+        const dataStart = pos + 18;
+        if (sequence >= 1 && totalChunks >= 1 && sequence <= totalChunks) {
+          const key = `c${totalChunks}`;
+          if (!groups.has(key)) groups.set(key, { totalChunks, chunks: new Map() });
+          groups.get(key).chunks.set(sequence, {
+            pos,
+            segmentTotal,
+            data: bytes.subarray(dataStart, pos + segmentTotal)
+          });
+        }
+      }
+      pos += segmentTotal;
+    }
+
+    const replacementSegments = new Map();
+    let sanitizedProfiles = 0;
+    let unsafeProfiles = 0;
+
+    for (const group of groups.values()) {
+      if (group.chunks.size !== group.totalChunks) {
+        unsafeProfiles++;
+        continue;
+      }
+      const ordered = [];
+      for (let sequence = 1; sequence <= group.totalChunks; sequence++) ordered.push(group.chunks.get(sequence));
+      const originalLength = ordered.reduce((sum, chunk) => sum + chunk.data.length, 0);
+      const joined = new Uint8Array(originalLength);
+      let at = 0;
+      for (const chunk of ordered) {
+        joined.set(chunk.data, at);
+        at += chunk.data.length;
+      }
+
+      const sanitized = sanitizeIccProfile(joined);
+      if (!sanitized || sanitized.length !== originalLength) {
+        unsafeProfiles++;
+        continue;
+      }
+
+      sanitizedProfiles++;
+      let profileOffset = 0;
+      for (const chunk of ordered) {
+        const segment = new Uint8Array(chunk.segmentTotal);
+        segment.set(bytes.subarray(chunk.pos, chunk.pos + 18), 0);
+        segment.set(sanitized.subarray(profileOffset, profileOffset + chunk.data.length), 18);
+        profileOffset += chunk.data.length;
+        replacementSegments.set(chunk.pos, segment);
+      }
+    }
+
+    return { replacementSegments, sanitizedProfiles, unsafeProfiles };
+  }
+
 /* ---- Image cleaning ---- */
 
   function dataViewFor(bytes) {
@@ -1129,6 +1509,7 @@
   function stripJpegSafe(bytes) {
     if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return { bytes, actions: [], method: 'container check' };
     const orientation = readJpegOrientation(bytes);
+    const iccPlan = planJpegIccProgressive(bytes);
     const parts = [bytes.subarray(0, 2)];
     let pos = 2;
     let stripped = false;
@@ -1181,7 +1562,7 @@
         removedBytes += segmentTotal;
       } else if (isIcc) {
         preservedIcc = true;
-        parts.push(bytes.subarray(pos, pos + segmentTotal));
+        parts.push(iccPlan.replacementSegments.get(pos) || bytes.subarray(pos, pos + segmentTotal));
       } else if (isApp0 || isAdobe || marker < 0xe0) {
         parts.push(bytes.subarray(pos, pos + segmentTotal));
       }
@@ -1207,7 +1588,7 @@
       }
     }
 
-    if (!stripped && !insertedOrientation) return { bytes, actions: [], method: 'byte surgery' };
+    if (!stripped && !insertedOrientation && !iccPlan.sanitizedProfiles) return { bytes, actions: [], method: 'byte surgery' };
     if (orientation && orientation !== 1 && !insertedOrientation) {
       parts.splice(1, 0, makeOrientationApp1(orientation));
       insertedOrientation = true;
@@ -1222,7 +1603,12 @@
     }
     const actions = ['Removed EXIF/XMP/IPTC/comment APP segments'];
     if (removedJfifThumbnail) actions.push('Removed the JFIF thumbnail');
-    if (preservedIcc) actions.push('Preserved ICC color profile');
+    if (preservedIcc) {
+      actions.push(iccPlan.sanitizedProfiles
+        ? `Sanitized ${iccPlan.sanitizedProfiles} ICC profile(s) while preserving color transforms`
+        : 'Preserved ICC color profile');
+      if (iccPlan.unsafeProfiles) actions.push('Some ICC profiles were malformed and could not be sanitized safely');
+    }
     if (insertedOrientation) actions.push('Preserved image orientation');
     if (removedBytes > 0) actions.push(`Removed or neutralized ${formatBytes(removedBytes)} of metadata and trailing bytes`);
     return { bytes: out, actions, method: 'byte surgery' };
@@ -1571,6 +1957,7 @@
   async function parseAudioMedia(info) {
     if (info.format === 'm4a') {
       await parseIsoMedia(info, { isVideo: false });
+      await inspectIsoMediaTracks(info);
       return;
     }
     const bytes = await readSome(info.file, 64 * 1024 * 1024);
@@ -2109,6 +2496,267 @@
     }
   }
 
+  const C2PA_UUID = new Uint8Array([
+    0xd8, 0xfe, 0xc3, 0xd6, 0x1b, 0x0e, 0x48, 0x3c,
+    0x92, 0x97, 0x58, 0x28, 0x87, 0x7e, 0xc4, 0x81
+  ]);
+
+  function isC2paUuid(bytes, offset) {
+    if (offset + C2PA_UUID.length > bytes.length) return false;
+    for (let i = 0; i < C2PA_UUID.length; i++) {
+      if (bytes[offset + i] !== C2PA_UUID[i]) return false;
+    }
+    return true;
+  }
+
+  async function findIsoC2paBoxes(file) {
+    const boxes = [];
+    let offset = 0;
+    while (offset + 8 <= file.size) {
+      const header = new Uint8Array(await file.slice(offset, offset + 32).arrayBuffer());
+      if (header.length < 8) break;
+      const view = dataViewFor(header);
+      let size = view.getUint32(0, false);
+      const type = asciiBytes(header, 4, 4);
+      let headerSize = 8;
+      if (size === 1 && header.length >= 16) {
+        size = view.getUint32(8, false) * 4294967296 + view.getUint32(12, false);
+        headerSize = 16;
+      } else if (size === 0) {
+        size = file.size - offset;
+      }
+      if (size < headerSize || offset + size > file.size) break;
+      if (type === 'uuid' && size >= headerSize + 16 && isC2paUuid(header, headerSize)) {
+        boxes.push({ offset, size, headerSize });
+      }
+      offset += size;
+    }
+    return boxes;
+  }
+
+  function isoCodecLabel(codec, codecParameter) {
+    const names = {
+      avc: 'H.264/AVC',
+      hevc: 'H.265/HEVC',
+      vp8: 'VP8',
+      vp9: 'VP9',
+      av1: 'AV1',
+      aac: 'AAC',
+      opus: 'Opus',
+      mp3: 'MP3',
+      vorbis: 'Vorbis'
+    };
+    const name = names[codec] || codec || 'unknown';
+    return codecParameter ? `${name} (${codecParameter})` : name;
+  }
+
+  async function safeMediaCall(action, fallback = null) {
+    try {
+      const value = await action();
+      return value === undefined ? fallback : value;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  async function inspectIsoMediaTracks(info) {
+    let module = null;
+    try {
+      module = await loadLibrary('mediabunny');
+    } catch (error) {
+      info.notes.push('Media codec details were unavailable because Mediabunny could not load.');
+      return null;
+    }
+
+    try {
+      const input = new module.Input({
+        formats: module.ALL_FORMATS,
+        source: new module.BlobSource(info.file)
+      });
+      if (!(await input.canRead())) {
+        info.notes.push('Mediabunny could not read this media file, so codec compatibility was not checked.');
+        return null;
+      }
+
+      const duration = await safeMediaCall(() => input.computeDuration(), null);
+      const media = { duration, video: null, audio: null, mimeType: await safeMediaCall(() => input.getMimeType(), null) };
+      const tracks = await input.getTracks();
+
+      for (const track of tracks) {
+        if (track.isVideoTrack() && !media.video) {
+          const codec = await safeMediaCall(() => track.getCodec(), null);
+          const codecParameter = await safeMediaCall(() => track.getCodecParameterString(), null);
+          const packetStats = await safeMediaCall(() => track.computePacketStats(50), null);
+          media.video = {
+            id: track.id,
+            type: 'video',
+            codec,
+            codecParameter,
+            canDecode: await safeMediaCall(() => track.canDecode(), false),
+            width: await safeMediaCall(() => track.getDisplayWidth(), null),
+            height: await safeMediaCall(() => track.getDisplayHeight(), null),
+            pixelAspectRatio: await safeMediaCall(() => track.getPixelAspectRatio(), null),
+            frameRate: await safeMediaCall(async () => (await track.computeFrameRateMetrics()).bestGuessFrameRate, null),
+            duration: await safeMediaCall(() => track.computeDuration(), null),
+            bitrate: await safeMediaCall(() => track.getBitrate(), packetStats ? packetStats.averageBitrate : null)
+          };
+        } else if (track.isAudioTrack() && !media.audio) {
+          const codec = await safeMediaCall(() => track.getCodec(), null);
+          const codecParameter = await safeMediaCall(() => track.getCodecParameterString(), null);
+          const packetStats = await safeMediaCall(() => track.computePacketStats(50), null);
+          media.audio = {
+            id: track.id,
+            type: 'audio',
+            codec,
+            codecParameter,
+            canDecode: await safeMediaCall(() => track.canDecode(), false),
+            channels: await safeMediaCall(() => track.getNumberOfChannels(), null),
+            sampleRate: await safeMediaCall(() => track.getSampleRate(), null),
+            duration: await safeMediaCall(() => track.computeDuration(), null),
+            bitrate: await safeMediaCall(() => track.getBitrate(), packetStats ? packetStats.averageBitrate : null)
+          };
+        }
+      }
+
+      addIsoTrackFields(info, media);
+      info.mediaTracks = media;
+      info.compatibility = await assessXUploadCompatibility(module, info, media);
+      return media;
+    } catch (error) {
+      info.notes.push(`Codec inspection warning: ${error.message || 'unknown media parser error'}`);
+      return null;
+    }
+  }
+
+  function addIsoTrackFields(info, media) {
+    const source = info.format === 'm4a' ? 'iso-audio' : 'iso';
+    if (media.video) {
+      const video = media.video;
+      addField(info.fields, source, 'Video codec', isoCodecLabel(video.codec, video.codecParameter), { category: 'technical', risk: 'low' });
+      if (video.width && video.height) addField(info.fields, source, 'Video dimensions', `${video.width}×${video.height}`, { category: 'technical', risk: 'low' });
+      if (video.frameRate) addField(info.fields, source, 'Video frame rate', `${Math.round(video.frameRate * 100) / 100} fps`, { category: 'technical', risk: 'low' });
+      if (video.bitrate) addField(info.fields, source, 'Video bitrate', `${Math.round(video.bitrate / 1000)} kbps`, { category: 'technical', risk: 'low' });
+    }
+    if (media.audio) {
+      const audio = media.audio;
+      addField(info.fields, source, 'Audio codec', isoCodecLabel(audio.codec, audio.codecParameter), { category: 'technical', risk: 'low' });
+      if (audio.channels) addField(info.fields, source, 'Audio channels', String(audio.channels), { category: 'technical', risk: 'low' });
+      if (audio.sampleRate) addField(info.fields, source, 'Audio sample rate', `${audio.sampleRate} Hz`, { category: 'technical', risk: 'low' });
+      if (audio.bitrate) addField(info.fields, source, 'Audio bitrate', `${Math.round(audio.bitrate / 1000)} kbps`, { category: 'technical', risk: 'low' });
+    }
+    if (media.duration !== null && Number.isFinite(media.duration)) {
+      addField(info.fields, source, 'Media duration seconds', String(Math.round(media.duration * 1000) / 1000), { category: 'technical', risk: 'low' });
+    }
+  }
+
+  async function assessXUploadCompatibility(module, info, media) {
+    const issues = [];
+    const recommendations = [];
+    const X_VIDEO_BITRATE = 5000000;
+
+    if (media.video && media.video.codec !== 'avc') {
+      issues.push(`Video uses ${isoCodecLabel(media.video.codec, media.video.codecParameter)}; X accepts H.264/AVC.`);
+    }
+    if (media.video && media.video.codec === 'avc' && media.video.codecParameter && !/^avc1\.64/.test(media.video.codecParameter)) {
+      issues.push('H.264 High Profile is required for the safest X upload; this file uses a lower profile.');
+    }
+    if (media.video && (!media.video.canDecode)) {
+      issues.push('This browser cannot decode the source video, so local X-compatible conversion is unavailable.');
+    }
+    if (media.video && media.video.width && media.video.height && (media.video.width < 32 || media.video.height < 32 || media.video.width > 1280 || media.video.height > 1024)) {
+      issues.push(`Video dimensions ${media.video.width}×${media.video.height} are outside the checked X range (32×32 to 1280×1024).`);
+    }
+    if (media.video && media.video.frameRate && media.video.frameRate > 60) {
+      issues.push(`Video frame rate is ${Math.round(media.video.frameRate * 100) / 100} fps; X accepts up to 60 fps.`);
+    }
+    if (media.video && media.video.pixelAspectRatio && (media.video.pixelAspectRatio.num !== 1 || media.video.pixelAspectRatio.den !== 1)) {
+      issues.push('Video pixels must use a 1:1 pixel aspect ratio for X.');
+    }
+    if (media.video && media.video.bitrate && media.video.bitrate < X_VIDEO_BITRATE) {
+      recommendations.push(`Video bitrate is ${Math.round(media.video.bitrate / 1000)} kbps; X recommends ${Math.round(X_VIDEO_BITRATE / 1000)} kbps. The browser encoder may honor this only as a target, not a guarantee.`);
+    }
+    if (media.duration !== null && Number.isFinite(media.duration) && media.duration < 0.5) {
+      issues.push('Media duration is below 0.5 seconds.');
+    }
+
+    if (media.audio) {
+      if (media.audio.codec !== 'aac') {
+        issues.push(`Audio uses ${isoCodecLabel(media.audio.codec, media.audio.codecParameter)}; X accepts AAC-LC.`);
+      } else if (media.audio.codecParameter && media.audio.codecParameter !== 'mp4a.40.2') {
+        issues.push(`Audio is ${media.audio.codecParameter}; AAC-LC (mp4a.40.2) is required.`);
+      }
+      if (media.audio.channels && media.audio.channels > 2) {
+        issues.push(`Audio has ${media.audio.channels} channels; X accepts mono or stereo.`);
+      }
+      if (!media.audio.canDecode) {
+        recommendations.push('This browser cannot decode the source audio track, but the file may still be cleaned.');
+      }
+    }
+
+    if (media.video && media.video.canDecode) {
+      let canEncode = false;
+      try {
+        canEncode = await module.canEncodeVideo('avc', {
+          width: media.video.width || 576,
+          height: media.video.height || 1024,
+          frameRate: media.video.frameRate && media.video.frameRate > 60 ? 60 : media.video.frameRate || 30,
+          quality: new module.Quality({ bitrate: X_VIDEO_BITRATE, bitrateMode: 'constant' })
+        });
+      } catch (error) {
+        canEncode = false;
+      }
+      if (!canEncode) {
+        issues.push('This browser cannot encode H.264 video. X-compatible export is unavailable locally.');
+      }
+    }
+
+    if (media.audio && (!media.audio.canDecode || media.audio.codec !== 'aac' || (media.audio.codecParameter && media.audio.codecParameter !== 'mp4a.40.2') || media.audio.channels > 2)) {
+      let canEncode = false;
+      try {
+        canEncode = await module.canEncodeAudio('aac', {
+          numberOfChannels: Math.min(2, media.audio.channels || 2),
+          sampleRate: media.audio.sampleRate || 48000,
+          quality: new module.Quality({ bitrate: 128000, bitrateMode: 'constant' })
+        });
+      } catch (error) {
+        canEncode = false;
+      }
+      if (!canEncode) {
+        try {
+          const aacModule = await loadLibrary('mediabunnyAac');
+          aacModule.registerAacEncoder();
+          canEncode = await module.canEncodeAudio('aac', {
+            numberOfChannels: Math.min(2, media.audio.channels || 2),
+            sampleRate: media.audio.sampleRate || 48000,
+            quality: new module.Quality({ bitrate: 128000, bitrateMode: 'constant' })
+          });
+        } catch (error) {
+          canEncode = false;
+        }
+      }
+      if (!canEncode) {
+        issues.push('AAC-LC audio cannot be encoded in this browser, so incompatible audio cannot be converted locally.');
+      }
+    }
+
+    if (!media.video && !media.audio) {
+      issues.push('No video or audio track was found, so X upload compatibility could not be checked.');
+    }
+
+    const ok = issues.length === 0;
+    return {
+      platform: 'X/Twitter upload compatibility',
+      target: 'X',
+      ok,
+      issues,
+      recommendations,
+      summary: ok
+        ? 'The detected video and audio tracks match the checked X requirements. Metadata cleaning can preserve them.'
+        : 'X may reject this file. MetaStrip can create a separate cleaned MP4 with H.264 video and AAC-LC audio when local encoding is available.',
+      canLocalExport: info.canClean
+    };
+  }
+
   async function parseIsoMedia(info, { isVideo }) {
     const iso = await getIsoMoov(info.file);
     if (!iso.ftyp && !iso.moov) {
@@ -2118,6 +2766,10 @@
     if (iso.ftyp) {
       addField(info.fields, 'iso', 'Major brand', iso.ftyp.majorBrand, { category: 'technical', risk: 'low' });
       addField(info.fields, 'iso', 'Compatible brands', iso.ftyp.compatibleBrands.filter(Boolean).join(', '), { category: 'technical', risk: 'low' });
+    }
+    const c2paBoxes = await findIsoC2paBoxes(info.file);
+    if (c2paBoxes.length) {
+      addField(info.fields, 'iso', 'C2PA manifest', `${c2paBoxes.length} box(es), ${c2paBoxes[0].size} bytes`, { category: 'software', risk: 'medium' });
     }
     if (!iso.moov) return;
     const bytes = iso.moov;
@@ -2136,6 +2788,7 @@
   async function parseVideoMedia(info) {
     if (['mp4', 'mov', 'm4v'].includes(info.format)) {
       await parseIsoMedia(info, { isVideo: true });
+      await inspectIsoMediaTracks(info);
       return;
     }
     await parseWebmWithMediabunny(info);
@@ -2191,11 +2844,14 @@
 
   function processIsoContainer(bytes, view, start, end, allowReplace, stats) {
     for (const atom of isoAtoms(bytes, view, start, end)) {
-      if ((atom.type === 'udta' || atom.type === 'meta') && allowReplace) {
+      const isC2pa = atom.type === 'uuid' && atom.size >= atom.headerSize + 16 &&
+        isC2paUuid(bytes, atom.offset + atom.headerSize);
+      if ((atom.type === 'udta' || atom.type === 'meta' || isC2pa) && allowReplace) {
         bytes.fill(0, atom.offset + atom.headerSize, atom.offset + atom.size);
         setAtomType(bytes, atom.offset, 'free');
         stats.neutralizedBytes += atom.size - atom.headerSize;
         stats.atoms++;
+        if (isC2pa) stats.c2pa = (stats.c2pa || 0) + 1;
         continue;
       }
       if (['mvhd', 'tkhd', 'mdhd'].includes(atom.type)) {
@@ -2215,10 +2871,204 @@
     processIsoContainer(out, view, 0, out.length, true, stats);
     const actions = [];
     if (stats.atoms) actions.push(`Replaced ${stats.atoms} metadata atoms with empty free boxes`);
+    if (stats.c2pa) actions.push(`Neutralized ${stats.c2pa} C2PA provenance box(es)`);
     if (stats.timestamps) actions.push(`Zeroed timestamps in ${stats.timestamps} header boxes`);
     if (!actions.length) return { bytes: out, actions: [], method: 'in-place erase' };
     actions.push('Media sample data and chunk offsets were not moved');
     return { bytes: out, actions, method: 'in-place erase', bytesRemoved: stats.neutralizedBytes };
+  }
+
+  async function readIsoMediaSummary(module, bytes) {
+    const input = new module.Input({
+      formats: module.ALL_FORMATS,
+      source: new module.BufferSource(bytes)
+    });
+    if (!(await input.canRead())) throw new Error('The generated media file could not be read for verification.');
+    const media = { duration: await safeMediaCall(() => input.computeDuration(), null), video: null, audio: null, mimeType: await safeMediaCall(() => input.getMimeType(), null) };
+    const tracks = await input.getTracks();
+    for (const track of tracks) {
+      if (track.isVideoTrack() && !media.video) {
+        const packetStats = await safeMediaCall(() => track.computePacketStats(50), null);
+        media.video = {
+          codec: await safeMediaCall(() => track.getCodec(), null),
+          codecParameter: await safeMediaCall(() => track.getCodecParameterString(), null),
+          canDecode: await safeMediaCall(() => track.canDecode(), false),
+          width: await safeMediaCall(() => track.getDisplayWidth(), null),
+          height: await safeMediaCall(() => track.getDisplayHeight(), null),
+          pixelAspectRatio: await safeMediaCall(() => track.getPixelAspectRatio(), null),
+          frameRate: await safeMediaCall(async () => (await track.computeFrameRateMetrics()).bestGuessFrameRate, null),
+          duration: await safeMediaCall(() => track.computeDuration(), null),
+          bitrate: await safeMediaCall(() => track.getBitrate(), packetStats ? packetStats.averageBitrate : null)
+        };
+      } else if (track.isAudioTrack() && !media.audio) {
+        media.audio = {
+          codec: await safeMediaCall(() => track.getCodec(), null),
+          codecParameter: await safeMediaCall(() => track.getCodecParameterString(), null),
+          canDecode: await safeMediaCall(() => track.canDecode(), false),
+          channels: await safeMediaCall(() => track.getNumberOfChannels(), null),
+          sampleRate: await safeMediaCall(() => track.getSampleRate(), null),
+          duration: await safeMediaCall(() => track.computeDuration(), null),
+          bitrate: await safeMediaCall(() => track.getBitrate(), null)
+        };
+      }
+    }
+    return media;
+  }
+
+  function xTargetVideoSize(width, height) {
+    const maxWidth = 1280;
+    const maxHeight = 1024;
+    const minWidth = 32;
+    const minHeight = 32;
+    if (width < minWidth || height < minHeight || width > maxWidth || height > maxHeight) {
+      const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+      const scaledWidth = Math.max(minWidth, Math.floor((width * scale) / 2) * 2);
+      const scaledHeight = Math.max(minHeight, Math.floor((height * scale) / 2) * 2);
+      return { width: scaledWidth, height: scaledHeight, fit: 'contain' };
+    }
+    return null;
+  }
+
+  async function ensureAacEncoderAvailable(module, audio) {
+    try {
+      if (await module.canEncodeAudio('aac', {
+        numberOfChannels: Math.min(2, audio.channels || 2),
+        sampleRate: audio.sampleRate || 48000,
+        quality: new module.Quality({ bitrate: X_AUDIO_BITRATE, bitrateMode: 'constant' })
+      })) {
+        return;
+      }
+    } catch (error) {
+      // Fall through to the pinned WASM polyfill below.
+    }
+    const aacModule = await loadLibrary('mediabunnyAac');
+    aacModule.registerAacEncoder();
+  }
+
+  async function createXCompatibleMp4(file, inspection) {
+    const module = await loadLibrary('mediabunny');
+    const input = new module.Input({
+      formats: module.ALL_FORMATS,
+      source: new module.BlobSource(file)
+    });
+    if (!(await input.canRead())) throw new Error('X-compatible export could not read this video file.');
+
+    const videoTrack = await input.getPrimaryVideoTrack();
+    const audioTrack = await input.getPrimaryAudioTrack();
+    if (!videoTrack) throw new Error('X-compatible export requires a video track.');
+
+    const sourceDuration = await safeMediaCall(() => input.computeDuration(), null);
+    const videoCodec = await safeMediaCall(() => videoTrack.getCodec(), null);
+    const videoCodecParameter = await safeMediaCall(() => videoTrack.getCodecParameterString(), null);
+    const videoWidth = await safeMediaCall(() => videoTrack.getDisplayWidth(), 0);
+    const videoHeight = await safeMediaCall(() => videoTrack.getDisplayHeight(), 0);
+    const frameRate = await safeMediaCall(async () => (await videoTrack.computeFrameRateMetrics()).bestGuessFrameRate, null);
+    const videoStats = await safeMediaCall(() => videoTrack.computePacketStats(50), null);
+    const videoBitrate = await safeMediaCall(() => videoTrack.getBitrate(), videoStats ? videoStats.averageBitrate : null);
+
+    const audio = audioTrack ? {
+      codec: await safeMediaCall(() => audioTrack.getCodec(), null),
+      codecParameter: await safeMediaCall(() => audioTrack.getCodecParameterString(), null),
+      channels: await safeMediaCall(() => audioTrack.getNumberOfChannels(), 2),
+      sampleRate: await safeMediaCall(() => audioTrack.getSampleRate(), 48000),
+      canDecode: await safeMediaCall(() => audioTrack.canDecode(), false)
+    } : null;
+
+    const videoSize = xTargetVideoSize(videoWidth, videoHeight);
+    const videoNeedsTranscode =
+      videoCodec !== 'avc' ||
+      !videoCodecParameter ||
+      !/^avc1\.64/.test(videoCodecParameter) ||
+      !videoBitrate ||
+      videoBitrate < X_VIDEO_BITRATE - 200000 ||
+      frameRate > 60 ||
+      !!videoSize;
+
+    const videoOptions = videoNeedsTranscode ? {
+      codec: 'avc',
+      quality: new module.Quality({ bitrate: X_VIDEO_BITRATE, bitrateMode: 'constant' }),
+      keyFrameInterval: 2,
+      frameRate: frameRate && frameRate > 60 ? 60 : undefined,
+      hardwareAcceleration: 'no-preference',
+      ...(videoSize ? { width: videoSize.width, height: videoSize.height, fit: videoSize.fit } : {})
+    } : {};
+
+    let audioNeedsTranscode = false;
+    let audioOptions = { discard: true };
+    if (audioTrack) {
+      audioNeedsTranscode = !(
+        audio.codec === 'aac' &&
+        audio.codecParameter === 'mp4a.40.2' &&
+        audio.channels <= 2
+      );
+      if (audioNeedsTranscode) await ensureAacEncoderAvailable(module, audio);
+      audioOptions = {
+        codec: 'aac',
+        numberOfChannels: Math.min(2, audio.channels || 2),
+        sampleRate: audio.sampleRate || 48000,
+        forceTranscode: audioNeedsTranscode,
+        ...(audioNeedsTranscode ? { quality: new module.Quality({ bitrate: X_AUDIO_BITRATE, bitrateMode: 'constant' }) } : {})
+      };
+    }
+
+    const output = new module.Output({
+      format: new module.Mp4OutputFormat({ fastStart: 'in-memory' }),
+      target: new module.BufferTarget()
+    });
+
+    const conversion = await module.Conversion.init({
+      input,
+      output,
+      video: videoOptions,
+      audio: audioOptions,
+      copy: { mode: videoNeedsTranscode || audioNeedsTranscode ? 'preferred' : 'forced' },
+      tags: {}
+    });
+
+    if (!conversion.isValid) {
+      const reasons = conversion.discardedTracks.map(item => item.reason).join(', ');
+      throw new Error(`X-compatible export was not possible${reasons ? `: ${reasons}` : ''}.`);
+    }
+
+    await conversion.execute();
+    const convertedBytes = new Uint8Array(output.target.buffer);
+    const cleaned = cleanIsoBytes(convertedBytes);
+    const outputMedia = await readIsoMediaSummary(module, cleaned.bytes);
+
+    const compatibilityInspection = {
+      file: new File([cleaned.bytes], 'x-verification.mp4', { type: 'video/mp4' }),
+      format: 'mp4',
+      fields: [],
+      canClean: true
+    };
+    const compatibility = await assessXUploadCompatibility(module, compatibilityInspection, outputMedia);
+    if (!compatibility.ok) {
+      throw new Error(`X compatibility verification failed: ${compatibility.issues.join(' ')}`);
+    }
+    if (!outputMedia.video) throw new Error('X compatibility verification failed: no video track was written.');
+    if (audioTrack && !outputMedia.audio) throw new Error('X compatibility verification failed: the audio track was not written.');
+    if (sourceDuration !== null && Number.isFinite(sourceDuration) && outputMedia.duration !== null &&
+        Math.abs(outputMedia.duration - sourceDuration) > 0.25) {
+      throw new Error('X compatibility verification failed: duration changed too much.');
+    }
+
+    const actions = ['Wrote a fast-start MP4 and removed descriptive metadata'];
+    if (videoNeedsTranscode) actions.push(`Converted video to H.264 High Profile at ${Math.round(X_VIDEO_BITRATE / 1000)} kbps constant bitrate`);
+    else actions.push('Preserved the source H.264 video samples');
+    if (audioNeedsTranscode) actions.push(`Converted audio to AAC-LC ${Math.round(X_AUDIO_BITRATE / 1000)} kbps`);
+    else if (audioTrack) actions.push('Copied the AAC-LC audio track without re-encoding');
+    else actions.push('Removed absent audio tracks from the X-compatible export');
+    actions.push(...cleaned.actions);
+    if (videoSize) actions.push(`Rescaled video to fit the checked X dimension range (${videoSize.width}×${videoSize.height})`);
+
+    return {
+      file: new File([cleaned.bytes], `x_ready_stripped_${file.name.replace(/\.[^.]+$/, '') || 'video'}.mp4`, { type: 'video/mp4' }),
+      blob: new Blob([cleaned.bytes], { type: 'video/mp4' }),
+      bytes: cleaned.bytes,
+      actions,
+      method: videoNeedsTranscode || audioNeedsTranscode ? 'X-compatible transcode' : 'X-compatible copy-only rewrite',
+      compatibility
+    };
   }
 
   async function cleanWebmFile(file, format) {
@@ -2794,6 +3644,46 @@
     }
   }
 
+  async function handleXCompatibleExport() {
+    if (!state || !state.inspection || !state.inspection.canClean) return;
+    const button = $('xExportBtn');
+    button.disabled = true;
+    const originalButtonText = button.textContent;
+    button.innerHTML = '<span class="spinner"></span> Creating X-compatible…';
+    setStatus('info', 'Creating X export');
+
+    try {
+      const original = state.file;
+      const inspection = state.inspection;
+      const xExport = await createXCompatibleMp4(original, inspection);
+      const after = await inspectFile(xExport.file);
+      const diff = mergeFieldMaps(inspection.fields, after.fields);
+      const residual = residualSensitiveFields(after.fields);
+
+      state.cleanedFile = xExport.file;
+      renderResult({
+        original,
+        cleaned: xExport,
+        after,
+        diff,
+        residual,
+        beforeSize: original.size,
+        afterSize: xExport.bytes.length,
+        inspection
+      });
+      renderCompatibility(after);
+      setStatus(residual.length ? 'danger' : 'ok', residual.length ? 'Residual metadata' : 'Verified clean and X-compatible');
+    } catch (error) {
+      console.error(error);
+      $('resultSection').classList.remove('hidden');
+      $('resultNotice').innerHTML = `<div class="notice danger">${escapeHtml(error.message || 'X-compatible export failed. The original file was not uploaded.')}</div>`;
+      setStatus('danger', 'X export failed');
+    } finally {
+      button.disabled = false;
+      button.textContent = originalButtonText;
+    }
+  }
+
   function renderResult(result) {
     const { diff, residual } = result;
     $('resultSection').classList.remove('hidden');
@@ -2866,7 +3756,14 @@
       ? '<div class="notice">No metadata fields changed. The cleaned copy preserves the original bytes for this format.</div>'
       : '';
 
-    $('resultNotice').innerHTML = residualText + addedWarning + unchangedNotice + actions;
+    const xNotice = result.cleaned.compatibility && !result.cleaned.compatibility.ok
+      ? `<div class="notice danger"><strong>X upload check failed:</strong> ${escapeHtml(result.cleaned.compatibility.issues.join(' '))}</div>`
+      : result.cleaned.compatibility
+        ? '<div class="notice ok"><strong>X upload check:</strong> the cleaned MP4 uses H.264 video and AAC-LC audio.</div>'
+        : '';
+
+    $('resultNotice').innerHTML = residualText + xNotice + addedWarning + unchangedNotice + actions;
+    renderCompatibility(result.after);
 
     $('downloadBtn').disabled = residual.length > 0;
     $('cleanedPreview').innerHTML = '';
@@ -2879,7 +3776,7 @@
     const url = URL.createObjectURL(state.cleanedFile);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `stripped_${state.file.name || 'file.bin'}`;
+    anchor.download = state.cleanedFile.name || `stripped_${state.file.name || 'file.bin'}`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
