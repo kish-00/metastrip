@@ -1,7 +1,7 @@
 ---
 name: metastrip
 description: Inspect and safely strip metadata from images, audio, video, PDFs, Office/OpenDocument files and ZIP archives — entirely in the browser.
-version: 0.2.0
+version: 0.3.0
 author: Kish Wachira (kish-00), Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -24,7 +24,7 @@ Nothing is uploaded. There is no backend, build step, or install step.
 - Verify that a cleaned copy really no longer contains the fields you care about
 - Produce an honest audit trail: removed vs. intentionally preserved vs. residual/blocked
 
-Don't use for: editing individual metadata values, batch processing folders, transcoding media, or guaranteeing anonymity. Metadata removal is not anonymization: visible content, file names, and statistical fingerprints remain.
+Don't use for: editing individual metadata values, batch processing folders, general-purpose media transcoding, or guaranteeing anonymity. Metadata removal is not anonymization: visible content, file names, and statistical fingerprints remain. The only transcoding path is the optional X/Twitter-compatible MP4 export.
 
 ## Supported Formats
 
@@ -34,7 +34,7 @@ Don't use for: editing individual metadata values, batch processing folders, tra
 | --- | --- | --- |
 | Images | JPEG, PNG, GIF, WebP, TIFF, BMP, SVG | Surgical byte removal; no canvas re-encode |
 | Audio | MP3, WAV, FLAC, OGG/Vorbis/Opus, M4A | Tag removal or comment-header rewrite; audio packets untouched |
-| Video | MP4, MOV, M4V, WebM, MKV | In-place atom erase (ISO-BMFF) or copy-only remux (Matroska/WebM) |
+| Video | MP4, MOV, M4V, WebM, MKV | In-place atom erase (ISO-BMFF) or copy-only remux (Matroska/WebM); optional X-compatible MP4 export can transcode incompatible video |
 | Documents | PDF | PDF object rewrite; content streams untouched |
 | Documents | DOCX, XLSX, PPTX | OOXML package rewrite |
 | Documents | ODT, ODS, ODP | OpenDocument package rewrite |
@@ -70,7 +70,7 @@ Don't use for: editing individual metadata values, batch processing folders, tra
 **Intentionally preserved (and disclosed in the report)**
 
 - Image orientation, when removing EXIF would otherwise rotate the picture
-- ICC colour profiles needed for correct colour rendering
+- ICC colour profiles needed for correct colour rendering; identifying ICC fields are neutralized while `A2B*`, `B2A*`, TRC and XYZ transform data is preserved
 - Codec/stream parameters, duration, dimensions, tracks, and all media sample data
 - Visible document content, including tracked changes and comment text
 - PDF page content and structure
@@ -84,13 +84,14 @@ Open `index.html` in a modern browser, or visit the hosted copy at https://kish-
 3. Click **Strip metadata safely**
 4. Read the report: **Removed**, **Kept**, **Changed**, **Added**, and any residual/blocked warnings
 5. Only after reviewing the report, click **Download cleaned file**
+6. For a video that X/Twitter would reject, use **Create X-compatible cleaned MP4** when shown; this can transcode the video and is labelled separately in the report.
 
 Cleaning never auto-downloads.
 
 ## Quick Reference
 
 - `index.html` — complete app (HTML/CSS/JS in one file)
-- CDN ES modules: `exifreader@4.54.0`, `jszip@3.10.2`, `pdf-lib@1.17.1`, `mediabunny@1.66.0`
+- CDN ES modules: `exifreader@4.54.0`, `jszip@3.10.2`, `pdf-lib@1.17.1`, `mediabunny@1.65.2`; optional AAC encoder: `@mediabunny/aac-encoder@1.66.0`
 - Format detection is by magic bytes, not file extension or MIME type
 - Cleaned output is re-inspected and diffed before it can be downloaded
 - `metastrip-skill/` — packaged copy of this skill; `metastrip-skill.zip` — distributable archive
@@ -107,8 +108,9 @@ Cleaning never auto-downloads.
 ## Pitfalls
 
 - **Cleaning is not anonymization.** Visible content, filenames, and content fingerprints remain.
-- **Preserved orientation and ICC profiles are deliberate.** They are reported as Kept; removing them can rotate or discolour the image.
+- **Preserved orientation and ICC profiles are deliberate.** ICC identifying fields are neutralized so the profile still renders correctly while the color-transform bytes remain. They are reported as Changed or Kept as appropriate; removing the whole profile can discolour the image.
 - **ISO-BMFF in-place erase keeps file size roughly constant.** Removed atoms are replaced with empty `free` boxes so media offsets do not move. The report labels this method.
+- **The X-compatible export is not lossless.** It may re-encode video to H.264/AAC-LC so X accepts the upload; local encoder availability and actual output size vary.
 - **Matroska/WebM cleaning is a copy-only remux.** Packets are copied without transcoding, but the container bytes are rewritten.
 - **Office/ODF cleaning preserves visible tracked changes and comments**, but clears their author names, initials, dates and revision IDs. Reviewing the content itself is still your responsibility.
 - **Digitally signed or encrypted packages are inspect-only.** Rewriting would break signatures or is impossible without credentials.
@@ -122,6 +124,7 @@ Cleaning never auto-downloads.
 - Open `index.html`; the page should load with no console errors and the drop zone visible
 - Drop a JPEG with GPS EXIF; confirm the metadata table shows GPS rows and an OpenStreetMap link
 - Strip it; confirm the report lists the GPS/EXIF fields as Removed, shows no residual warning, and offers a download
+- Drop a JPEG with an embedded ICC profile containing identifying text; confirm the description/copyright are neutralized, transform tags stay intact, and verification still passes
 - Re-open the downloaded file in MetaStrip; confirm the removed fields are gone and the image still renders
 - Repeat for one audio file, one video, one PDF, one DOCX/ODT, and one ZIP
 - Confirm a HEIC/AVIF or encrypted ZIP is reported as inspect-only with a note, not as successfully cleaned
