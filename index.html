@@ -1334,9 +1334,12 @@
   }
 
   function writeIccNeutralTag(bytes, view, profileOffset, tagSize, tagSignature) {
+    // Compact sRGB profiles commonly reserve only 36 bytes for a localized
+    // description, which cannot fit the two longer generic values. Keep trying
+    // progressively shorter neutral labels before declaring the profile unsafe.
     const candidates = tagSignature === 'cprt'
       ? ['No copyright information', 'None']
-      : ['ICC Profile', 'None'];
+      : ['ICC Profile', 'None', 'ICC'];
     const existingType = asciiBytes(bytes, profileOffset, 4);
 
     for (const text of candidates) {
